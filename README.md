@@ -4,7 +4,8 @@ Graba tus reuniones desde la barra de arriba del Mac, las transcribe **en tu pro
 
 ```
 ● Grabar reunión  →  Detener y resumir  →  ~/Reuniones/2026-10-21-1530-acme/
-                                              ├── resumen.md
+                                              ├── resumen.md        (TL;DR, puntos clave, decisiones, tareas)
+                                              ├── minuta.md         (solo si fue reunión comercial)
                                               ├── transcripcion.md
                                               ├── microfono.caf   (tu voz)
                                               └── llamada.caf     (lo que sonó por el Mac)
@@ -15,7 +16,7 @@ Graba tus reuniones desde la barra de arriba del Mac, las transcribe **en tu pro
 1. **Graba dos pistas separadas** con ScreenCaptureKit: tu micrófono y el audio del Mac (Meet, Zoom, Teams, WhatsApp, lo que sea). No graba la pantalla.
 2. **Transcribe cada pista con [whisper.cpp](https://github.com/ggml-org/whisper.cpp)** (modelo `large-v3-turbo`) en el Mac. El audio no sale de tu computador.
 3. **Junta las pistas por tiempo**, así la transcripción dice quién habló: tú o la llamada. Saca los silencios, las frases que Whisper inventa ("subtítulos por la comunidad de Amara.org") y el eco si usas parlantes.
-4. **Resume con Claude** usando una plantilla que puedes editar. Por defecto usa [Claude Code](https://claude.com/claude-code) (`claude -p`) con tu suscripción; también puede usar la API de Anthropic.
+4. **Resume con Claude** al estilo de las notas de reunión: TL;DR, resumen general, puntos clave, decisiones, tareas y preguntas abiertas, con una plantilla que puedes editar. Por defecto usa [Claude Code](https://claude.com/claude-code) (`claude -p`) con tu suscripción; también puede usar la API de Anthropic.
 5. **Le pone nombre a la carpeta** según el tema de la reunión.
 
 También sirve para **cualquier audio que ya tengas** (notas de voz, grabaciones viejas): menú › *Procesar un audio…*
@@ -49,7 +50,8 @@ Para el resumen necesitas una de estas dos:
   "modelo": "~/Library/Application Support/Minuta/ggml-large-v3-turbo.bin",
   "resumen_con": "claude",
   "modelo_claude": "sonnet",
-  "borrar_audio": false
+  "borrar_audio": false,
+  "vocabulario": "Caravana, UF, RUT, TAG, Acme"
 }
 ```
 
@@ -57,6 +59,7 @@ Para el resumen necesitas una de estas dos:
 - `idioma`: `es`, `en`, … o `auto`.
 - `resumen_con`: `claude` (Claude Code), `api` (API de Anthropic, con `modelo_claude` tipo `claude-sonnet-5-5`) o `ninguno` (solo transcribe).
 - `borrar_audio`: borra los `.caf` después de resumir.
+- `vocabulario`: nombres y siglas que Whisper debe reconocer (empresas, productos, jerga local).
 
 **La plantilla del resumen** es un texto común: copia `Recursos/plantillas/resumen.md` a `~/Library/Application Support/Minuta/plantilla.md` y cámbiala como quieras (secciones, idioma, tono). Su primera línea de respuesta debe ser `TITULO: …`, que se usa para nombrar la carpeta.
 

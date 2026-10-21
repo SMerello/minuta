@@ -39,6 +39,7 @@ CONFIG_INICIAL = {
     "resumen_con": "claude",        # "claude" (Claude Code, usa tu suscripción) | "api" | "ninguno"
     "modelo_claude": "sonnet",      # para "claude"; para "api" usa un id como "claude-sonnet-5-5"
     "borrar_audio": False,          # True → borra los .caf cuando todo salió bien
+    "vocabulario": "",              # nombres y palabras que Whisper debe reconocer (empresas, siglas, jerga)
 }
 
 # Frases que Whisper inventa en silencios (vienen de subtítulos de YouTube con que se entrenó).
@@ -195,6 +196,8 @@ def transcribir(wav, config, etiqueta):
     salida_json = Path(f"{base}.json")
     comando = [herramienta("whisper-cli"), "-m", str(config["modelo"]), "-f", str(wav),
                "-l", config["idioma"], "-oj", "-ojf", "-of", str(base), "-pp", "-np"]
+    if config.get("vocabulario"):
+        comando += ["--prompt", config["vocabulario"]]
     proceso = subprocess.Popen(comando, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     ultimo = -1
     cola = []
@@ -407,7 +410,11 @@ def main():
             decir("LISTO", str(carpeta / "transcripcion.md"))
             return 2
         titulo, resumen = separar_titulo(resumen)
-        resumen_md.write_text(resumen, encoding="utf-8")
+        # La plantilla puede agregar una minuta comercial después de "===MINUTA===": va en su propio archivo.
+        resumen, _, minuta = resumen.partition("===MINUTA===")
+        resumen_md.write_text(resumen.strip() + "\n", encoding="utf-8")
+        if minuta.strip():
+            (carpeta / "minuta.md").write_text(minuta.strip() + "\n", encoding="utf-8")
 
         if config["borrar_audio"] and args.carpeta:
             for ruta, _ in pistas:
