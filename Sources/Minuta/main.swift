@@ -22,6 +22,16 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refrescar()
     }
 
+    /// Si abres Minuta otra vez (Spotlight, Finder) mientras corre, muestra el menú donde está el mouse.
+    /// Sirve cuando el ícono queda escondido detrás de la muesca de la pantalla.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard let menu = item.menu else { return false }
+        menuNeedsUpdate(menu)
+        NSApp.activate(ignoringOtherApps: true)
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+        return false
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         guard grabandoDesde != nil else { return }
         let listo = DispatchSemaphore(value: 0)
