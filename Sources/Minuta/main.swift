@@ -7,13 +7,15 @@ import UniformTypeIdentifiers
 final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let item: NSStatusItem = {
         // macOS pone los íconos nuevos a la izquierda de los demás; en los Mac con muesca eso suele
-        // quedar escondido tras la cámara. La primera vez lo dejo a la derecha, junto al wifi;
+        // quedar escondido tras la cámara, y los primeros que esconde cuando la app del frente tiene
+        // muchos menús son los de la izquierda. La primera vez lo dejo lo más a la derecha posible;
         // si después lo mueves con ⌘ + arrastrar, macOS recuerda tu posición.
         let clave = "NSStatusItem Preferred Position minuta"
-        if UserDefaults.standard.object(forKey: clave) == nil {
-            UserDefaults.standard.set(150.0, forKey: clave)
+        let actual = UserDefaults.standard.object(forKey: clave) as? Double
+        if actual == nil || actual == 150 {   // 150 era la posición inicial de la versión 0.1
+            UserDefaults.standard.set(1.0, forKey: clave)
         }
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.autosaveName = "minuta"
         return item
     }()
@@ -22,8 +24,13 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var reloj: Timer?
     private var enProceso: [String: String] = [:]   // carpeta → etapa actual
     private var ultimoResumen: URL?
+    private var atajo: Atajo?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        atajo = Atajo { [weak self] in
+            guard let self else { return }
+            if self.grabandoDesde == nil { self.grabar() } else { self.detener() }
+        }
         grabador.alCortarse = { [weak self] error in
             DispatchQueue.main.async { self?.grabacionCortada(error) }
         }
@@ -56,9 +63,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.removeAllItems()
         if let desde = grabandoDesde {
             menu.addItem(titulo("Grabando · \(Self.duracion(desde: desde))"))
-            menu.addItem(accion("Detener y resumir", #selector(detener), tecla: "s"))
+            menu.addItem(accion("Detener y resumir  (⌃⌥R)", #selector(detener), tecla: "s"))
         } else {
-            menu.addItem(accion("Grabar reunión", #selector(grabar), tecla: "r"))
+            menu.addItem(accion("Grabar reunión  (⌃⌥R)", #selector(grabar), tecla: "r"))
         }
         for (carpeta, etapa) in enProceso.sorted(by: { $0.key < $1.key }) {
             menu.addItem(titulo("\((carpeta as NSString).lastPathComponent): \(etapa)"))
@@ -90,14 +97,16 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let desde = grabandoDesde {
             boton.image = NSImage(systemSymbolName: "record.circle.fill", accessibilityDescription: "Grabando")
             boton.contentTintColor = .systemRed
-            boton.title = " " + Self.duracion(desde: desde)
+            boton.toolTip = "Grabando · \(Self.duracion(desde: desde))"
         } else {
             let simbolo = enProceso.isEmpty ? "record.circle" : "ellipsis.circle"
             boton.image = NSImage(systemSymbolName: simbolo, accessibilityDescription: "Minuta")
             boton.contentTintColor = nil
-            boton.title = ""
+            boton.toolTip = "Minuta · ⌃⌥R para grabar"
         }
-        boton.imagePosition = .imageLeading
+        // Siempre del mismo ancho (sin el contador): si crece, macOS lo esconde cuando no cabe junto a la muesca.
+        boton.title = ""
+        boton.imagePosition = .imageOnly
     }
 
     private static func duracion(desde: Date) -> String {
@@ -125,6 +134,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 grabandoDesde = Date()
                 reloj = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.refrescar() }
                 refrescar()
+                avisar("Grabando", "Para detener: ⌃⌥R o el menú de Minuta.")
             } catch {
                 try? FileManager.default.removeItem(at: carpeta)
                 avisar("No pude empezar a grabar",

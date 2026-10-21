@@ -44,7 +44,7 @@ CONFIG_INICIAL = {
 # Frases que Whisper inventa en silencios (vienen de subtítulos de YouTube con que se entrenó).
 ALUCINACIONES = (
     "amara.org", "subtítulos realizados", "subtitulos realizados", "subtítulos por la comunidad",
-    "gracias por ver", "suscríbete", "suscribete", "no olvides suscribirte", "thanks for watching",
+    "gracias por ver", "suscríbete", "suscribete", "suscríbanse", "dale like", "no olvides suscribirte", "thanks for watching",
 )
 
 _log = None
@@ -125,7 +125,8 @@ def compactar(wav, silencios, duracion, destino):
     if cursor < duracion:
         tramos.append((cursor, duracion))
     juntos = []
-    for a, b in ((max(0.0, a - margen), min(duracion, b + margen)) for a, b in tramos if b - a > 0.05):
+    # Tramos de menos de 0,3 s son clics o golpes (teclado, mesa), no voz.
+    for a, b in ((max(0.0, a - margen), min(duracion, b + margen)) for a, b in tramos if b - a > 0.3):
         if juntos and a <= juntos[-1][1]:
             juntos[-1] = (juntos[-1][0], max(juntos[-1][1], b))
         else:
@@ -210,7 +211,8 @@ def transcribir(wav, config, etiqueta):
     salida_json.unlink(missing_ok=True)
     segmentos = []
     for s in datos.get("transcription", []):
-        if not s.get("text", "").strip():
+        # Las frases inventadas se sacan aquí, antes de cortar el segmento en pedazos (después ya no se reconocen).
+        if not s.get("text", "").strip() or es_alucinacion(s["text"]):
             continue
         fichas = [(t["offsets"]["from"] / 1000, t["offsets"]["to"] / 1000, t["text"])
                   for t in s.get("tokens", []) if not t.get("text", "").startswith("[_")]
@@ -218,11 +220,16 @@ def transcribir(wav, config, etiqueta):
     return segmentos
 
 
+def es_alucinacion(texto):
+    bajo = re.sub(r"\s+", " ", texto.lower())
+    junto = bajo.replace(" ", "")
+    return any(frase in bajo or frase.replace(" ", "") in junto for frase in ALUCINACIONES)
+
+
 def limpiar(segmentos, silencios):
     limpios = []
     for inicio, fin, texto in segmentos:
-        bajo = texto.lower()
-        if any(frase in bajo for frase in ALUCINACIONES):
+        if es_alucinacion(texto):
             continue
         if re.fullmatch(r"[\W_]*|\[.*\]|\(.*\)", texto):   # "[Música]", "(risas)", puntuación suelta
             continue
