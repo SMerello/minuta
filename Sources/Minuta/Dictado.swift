@@ -32,11 +32,12 @@ final class Dictado {
     /// Detiene, transcribe y entrega el texto (o nil si no se entendió nada) en el hilo principal.
     func terminar(alTerminar: @escaping (Result<String?, Error>) -> Void) {
         guard let grabadora, let archivo, let desde else { return }
-        grabadora.stop()
         self.grabadora = nil
         self.desde = nil
         let segundos = Date().timeIntervalSince(desde)
-        DispatchQueue.global(qos: .userInitiated).async {
+        // Sigue grabando medio segundo más: la gente aprieta el atajo antes de terminar la última palabra.
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.5) {
+            grabadora.stop()
             defer { try? FileManager.default.removeItem(at: archivo) }
             let resultado: Result<String?, Error>
             if segundos < 0.6 {

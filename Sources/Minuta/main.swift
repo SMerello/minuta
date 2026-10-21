@@ -29,6 +29,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var atajos: [Atajo] = []
     private let dictado = Dictado()
     private var transcribiendoDictado = false
+    private let indicador = Indicador()
+    private var modoIndicador: Indicador.Modo?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         atajos = [
@@ -46,10 +48,17 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self, self.grabandoDesde != nil || self.dictado.activo else { return }
             self.refrescar()
         }
+        indicador.alDetener = { [weak self] modo in
+            if modo == .reunion { self?.detener() } else { self?.alternarDictado() }
+        }
         let menu = NSMenu()
         menu.delegate = self
         item.menu = menu
         refrescar()
+        if !UserDefaults.standard.bool(forKey: "vioAyuda") {
+            UserDefaults.standard.set(true, forKey: "vioAyuda")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.ayuda() }
+        }
     }
 
     /// Si abres Minuta otra vez (Spotlight, Finder) mientras corre, muestra el menú donde está el mouse.
@@ -95,6 +104,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(accion("Abrir último resumen", #selector(abrirUltimo)))
         }
         menu.addItem(accion("Abrir carpeta de reuniones", #selector(abrirCarpeta)))
+        menu.addItem(accion("Cómo se usa", #selector(ayuda)))
         menu.addItem(.separator())
         menu.addItem(accion("Salir", #selector(salir), tecla: "q"))
     }
@@ -113,24 +123,53 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func refrescar() {
         guard let boton = item.button else { return }
-        if dictado.activo || transcribiendoDictado {
-            boton.image = NSImage(systemSymbolName: dictado.activo ? "mic.fill" : "ellipsis.circle",
-                                  accessibilityDescription: "Dictando")
-            boton.contentTintColor = .systemOrange
+        let modo: Indicador.Modo?
+        if dictado.activo {
+            modo = .dictado
+            boton.image = Self.simbolo("mic.circle.fill", color: .systemOrange)
             boton.toolTip = "Dictando · ⌃⌥D para terminar"
+        } else if transcribiendoDictado {
+            modo = .escribiendo
+            boton.image = Self.simbolo("ellipsis.circle.fill", color: .systemOrange)
+            boton.toolTip = "Escribiendo el dictado…"
         } else if let desde = grabandoDesde {
-            boton.image = NSImage(systemSymbolName: "record.circle.fill", accessibilityDescription: "Grabando")
-            boton.contentTintColor = .systemRed
+            modo = .reunion
+            boton.image = Self.simbolo("record.circle.fill", color: .systemRed)
             boton.toolTip = "Grabando · \(Self.duracion(desde: desde))"
         } else {
-            let simbolo = enProceso.isEmpty ? "record.circle" : "ellipsis.circle"
-            boton.image = NSImage(systemSymbolName: simbolo, accessibilityDescription: "Minuta")
-            boton.contentTintColor = nil
+            modo = nil
+            boton.image = Self.simbolo(enProceso.isEmpty ? "record.circle" : "ellipsis.circle", color: nil)
             boton.toolTip = "Minuta · ⌃⌥R grabar reunión · ⌃⌥D dictar"
         }
         // Siempre del mismo ancho (sin el contador): si crece, macOS lo esconde cuando no cabe junto a la muesca.
         boton.title = ""
         boton.imagePosition = .imageOnly
+
+        // La barra flotante en pantalla: se arma al cambiar de modo y después solo se actualiza el tiempo.
+        if modo != modoIndicador {
+            modoIndicador = modo
+            switch modo {
+            case .dictado?: indicador.mostrar(.dictado, desde: dictado.desde ?? Date())
+            case .escribiendo?: indicador.mostrar(.escribiendo)
+            case .reunion?: indicador.mostrar(.reunion, desde: grabandoDesde ?? Date())
+            case nil: indicador.ocultar()
+            }
+        } else {
+            indicador.actualizar()
+        }
+    }
+
+    /// Ícono de la barra. Con color, va como imagen normal (las "template" las pinta macOS y pierden el rojo).
+    private static func simbolo(_ nombre: String, color: NSColor?) -> NSImage? {
+        let base = NSImage(systemSymbolName: nombre, accessibilityDescription: "Minuta")?
+            .withSymbolConfiguration(.init(pointSize: 15, weight: .regular))
+        guard let color else {
+            base?.isTemplate = true
+            return base
+        }
+        let pintada = base?.withSymbolConfiguration(.init(paletteColors: [color]))
+        pintada?.isTemplate = false
+        return pintada
     }
 
     private static func duracion(desde: Date) -> String {
@@ -192,7 +231,6 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 try await grabador.iniciar(en: carpeta)
                 grabandoDesde = Date()
                 refrescar()
-                avisar("Grabando", "Para detener: ⌃⌥R o el menú de Minuta.")
             } catch {
                 try? FileManager.default.removeItem(at: carpeta)
                 avisar("No pude empezar a grabar",
@@ -303,6 +341,26 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // MARK: Otros
+
+    @objc private func ayuda() {
+        let alerta = NSAlert()
+        alerta.messageText = "Cómo se usa Minuta"
+        alerta.informativeText = """
+        Reuniones (con resumen)
+        1. Aprieta ⌃⌥R (Control + Opción + R) o el ícono ⏺ de arriba › Grabar reunión.
+        2. Abajo en la pantalla aparece una barra roja: está grabando tu voz y la de la llamada.
+        3. Al terminar, aprieta Detener en esa barra (o ⌃⌥R otra vez).
+        4. En unos minutos te llega un aviso: el resumen y la transcripción quedan en ~/Reuniones.
+
+        Dictado (texto corto donde estás escribiendo)
+        1. Pon el cursor donde quieras el texto (WhatsApp, correo, cualquier campo).
+        2. Aprieta ⌃⌥D: aparece una barra naranja. Habla.
+        3. Aprieta ⌃⌥D otra vez (o Detener): el texto se escribe solo y queda copiado.
+        """
+        alerta.addButton(withTitle: "Entendido")
+        NSApp.activate(ignoringOtherApps: true)
+        alerta.runModal()
+    }
 
     @objc private func abrirUltimo() {
         if let ultimoResumen { NSWorkspace.shared.open(ultimoResumen) }
