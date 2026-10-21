@@ -3,7 +3,7 @@
 Graba tus reuniones desde la barra de arriba del Mac, las transcribe **en tu propio computador** con Whisper y te deja un resumen con Claude. Sin bots que se meten a la llamada, sin video, sin suscripciones.
 
 ```
-● Grabar reunión  →  Detener y resumir  →  ~/Reuniones/2026-10-21-1530-acme/
+● ⌃⌥R Grabar reunión  →  ⌃⌥R Detener y resumir  →  ~/Reuniones/2026-10-21-1530-acme/
                                               ├── resumen.md        (TL;DR, puntos clave, decisiones, tareas)
                                               ├── minuta.md         (solo si fue reunión comercial)
                                               ├── transcripcion.md
@@ -18,6 +18,8 @@ Graba tus reuniones desde la barra de arriba del Mac, las transcribe **en tu pro
 3. **Junta las pistas por tiempo**, así la transcripción dice quién habló: tú o la llamada. Saca los silencios, las frases que Whisper inventa ("subtítulos por la comunidad de Amara.org") y el eco si usas parlantes.
 4. **Resume con Claude** al estilo de las notas de reunión: TL;DR, resumen general, puntos clave, decisiones, tareas y preguntas abiertas, con una plantilla que puedes editar. Por defecto usa [Claude Code](https://claude.com/claude-code) (`claude -p`) con tu suscripción; también puede usar la API de Anthropic.
 5. **Le pone nombre a la carpeta** según el tema de la reunión.
+
+**Dictado:** aprieta `⌃⌥D` (Control + Opción + D), habla, y vuelve a apretarlo. El texto se escribe solo donde está el cursor (un chat, un correo, cualquier campo), queda copiado en el portapapeles y se guarda en `~/Reuniones/Dictados/AAAA-MM-DD.md`. Para que se escriba solo, macOS pide el permiso de **Accesibilidad** la primera vez; sin él, el texto queda copiado y lo pegas con ⌘V.
 
 También sirve para **cualquier audio que ya tengas** (notas de voz, grabaciones viejas): menú › *Procesar un audio…*
 

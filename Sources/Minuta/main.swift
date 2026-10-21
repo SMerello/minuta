@@ -1,8 +1,10 @@
 import AppKit
+import Carbon.HIToolbox
 import UniformTypeIdentifiers
 
 // Minuta: un ícono en la barra de arriba del Mac.
 // Grabar → Detener → transcribe con Whisper en tu Mac → resume con Claude → deja todo en ~/Reuniones.
+// Dictar (⌃⌥D) → transcribe y escribe el texto donde está el cursor.
 
 final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let item: NSStatusItem = {
@@ -24,15 +26,25 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var reloj: Timer?
     private var enProceso: [String: String] = [:]   // carpeta → etapa actual
     private var ultimoResumen: URL?
-    private var atajo: Atajo?
+    private var atajos: [Atajo] = []
+    private let dictado = Dictado()
+    private var transcribiendoDictado = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        atajo = Atajo { [weak self] in
-            guard let self else { return }
-            if self.grabandoDesde == nil { self.grabar() } else { self.detener() }
-        }
+        atajos = [
+            Atajo(tecla: kVK_ANSI_R) { [weak self] in
+                guard let self else { return }
+                if self.grabandoDesde == nil { self.grabar() } else { self.detener() }
+            },
+            Atajo(tecla: kVK_ANSI_D) { [weak self] in self?.alternarDictado() },
+        ]
         grabador.alCortarse = { [weak self] error in
             DispatchQueue.main.async { self?.grabacionCortada(error) }
+        }
+        // Un solo reloj para el tiempo de grabación y de dictado (se ve en el menú y al pasar el mouse).
+        reloj = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self, self.grabandoDesde != nil || self.dictado.activo else { return }
+            self.refrescar()
         }
         let menu = NSMenu()
         menu.delegate = self
@@ -67,6 +79,13 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             menu.addItem(accion("Grabar reunión  (⌃⌥R)", #selector(grabar), tecla: "r"))
         }
+        if let desde = dictado.desde {
+            menu.addItem(accion("Terminar dictado · \(Self.duracion(desde: desde))  (⌃⌥D)", #selector(alternarDictado)))
+        } else if transcribiendoDictado {
+            menu.addItem(titulo("Escribiendo el dictado…"))
+        } else {
+            menu.addItem(accion("Dictar  (⌃⌥D)", #selector(alternarDictado), tecla: "d"))
+        }
         for (carpeta, etapa) in enProceso.sorted(by: { $0.key < $1.key }) {
             menu.addItem(titulo("\((carpeta as NSString).lastPathComponent): \(etapa)"))
         }
@@ -94,7 +113,12 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func refrescar() {
         guard let boton = item.button else { return }
-        if let desde = grabandoDesde {
+        if dictado.activo || transcribiendoDictado {
+            boton.image = NSImage(systemSymbolName: dictado.activo ? "mic.fill" : "ellipsis.circle",
+                                  accessibilityDescription: "Dictando")
+            boton.contentTintColor = .systemOrange
+            boton.toolTip = "Dictando · ⌃⌥D para terminar"
+        } else if let desde = grabandoDesde {
             boton.image = NSImage(systemSymbolName: "record.circle.fill", accessibilityDescription: "Grabando")
             boton.contentTintColor = .systemRed
             boton.toolTip = "Grabando · \(Self.duracion(desde: desde))"
@@ -102,7 +126,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let simbolo = enProceso.isEmpty ? "record.circle" : "ellipsis.circle"
             boton.image = NSImage(systemSymbolName: simbolo, accessibilityDescription: "Minuta")
             boton.contentTintColor = nil
-            boton.toolTip = "Minuta · ⌃⌥R para grabar"
+            boton.toolTip = "Minuta · ⌃⌥R grabar reunión · ⌃⌥D dictar"
         }
         // Siempre del mismo ancho (sin el contador): si crece, macOS lo esconde cuando no cabe junto a la muesca.
         boton.title = ""
@@ -114,6 +138,41 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return s >= 3600
             ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
             : String(format: "%02d:%02d", s / 60, s % 60)
+    }
+
+    // MARK: Dictar
+
+    @objc private func alternarDictado() {
+        if dictado.activo {
+            NSSound(named: "Pop")?.play()
+            transcribiendoDictado = true
+            refrescar()
+            dictado.terminar { [weak self] resultado in
+                guard let self else { return }
+                self.transcribiendoDictado = false
+                self.refrescar()
+                switch resultado {
+                case .success(let texto?):
+                    Dictado.guardar(texto)
+                    if !Dictado.escribir(texto) {
+                        self.avisar("Texto copiado", "Pégalo con ⌘V. Para que se escriba solo, activa Minuta en Ajustes del Sistema › Privacidad y seguridad › Accesibilidad.")
+                    }
+                case .success(nil):
+                    self.avisar("No escuché nada", "Revisa qué micrófono está usando el Mac (por ejemplo, los AirPods).")
+                case .failure(let error):
+                    self.avisar("No pude transcribir el dictado", error.localizedDescription)
+                }
+            }
+        } else {
+            guard !transcribiendoDictado else { return }
+            do {
+                try dictado.empezar()
+                NSSound(named: "Tink")?.play()
+                refrescar()
+            } catch {
+                avisar("No pude empezar a dictar", error.localizedDescription)
+            }
+        }
     }
 
     // MARK: Grabar
@@ -132,7 +191,6 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             do {
                 try await grabador.iniciar(en: carpeta)
                 grabandoDesde = Date()
-                reloj = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.refrescar() }
                 refrescar()
                 avisar("Grabando", "Para detener: ⌃⌥R o el menú de Minuta.")
             } catch {
@@ -148,7 +206,6 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Task { @MainActor in
             await grabador.detener()
             grabandoDesde = nil
-            reloj?.invalidate()
             refrescar()
             procesar(["--carpeta", carpeta.path], clave: carpeta.path)
         }
@@ -296,6 +353,14 @@ enum Config {
         let ruta = (json["carpeta"] as? String) ?? "~/Reuniones"
         return URL(fileURLWithPath: (ruta as NSString).expandingTildeInPath)
     }
+
+    static var modelo: String {
+        ((json["modelo"] as? String) ?? soporte.appendingPathComponent("ggml-large-v3-turbo.bin").path)
+            .replacingOccurrences(of: "~", with: FileManager.default.homeDirectoryForCurrentUser.path)
+    }
+
+    static var idioma: String { (json["idioma"] as? String) ?? "es" }
+    static var vocabulario: String { (json["vocabulario"] as? String) ?? "" }
 
     static var python: String {
         ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"]
