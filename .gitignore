@@ -1,0 +1,7 @@
+.build/
+.swiftpm/
+*.bin
+*.caf
+*.wav
+.DS_Store
+__pycache__/
