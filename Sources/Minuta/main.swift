@@ -272,6 +272,28 @@ enum Config {
     }
 }
 
+// Modo de prueba: `Minuta.app/Contents/MacOS/Minuta --prueba <segundos> <carpeta>` graba y sale, sin procesar.
+if let i = CommandLine.arguments.firstIndex(of: "--prueba"), CommandLine.arguments.count > i + 2 {
+    let segundos = Double(CommandLine.arguments[i + 1]) ?? 5
+    let carpeta = URL(fileURLWithPath: CommandLine.arguments[i + 2])
+    try? FileManager.default.createDirectory(at: carpeta, withIntermediateDirectories: true)
+    let grabador = Grabador()
+    Task {
+        do {
+            try await grabador.iniciar(en: carpeta)
+            print("grabando \(segundos) s en \(carpeta.path)")
+            try await Task.sleep(nanoseconds: UInt64(segundos * 1e9))
+            await grabador.detener()
+            print("listo")
+            exit(0)
+        } catch {
+            print("error: \(error.localizedDescription)")
+            exit(1)
+        }
+    }
+    RunLoop.main.run()
+}
+
 let app = NSApplication.shared
 let delegado = App()
 app.delegate = delegado

@@ -24,6 +24,7 @@ import subprocess
 import sys
 import unicodedata
 import urllib.request
+import wave
 from pathlib import Path
 
 SOPORTE = Path.home() / "Library/Application Support/Minuta"
@@ -107,6 +108,79 @@ def preparar_pista(entrada, wav):
     return volumen, silencios, duracion
 
 
+PAUSA = 1.0   # segundos de silencio entre tramos con voz en el audio compactado
+
+
+def compactar(wav, silencios, duracion, destino):
+    """Arma un WAV solo con los tramos con voz, separados por PAUSA segundos de silencio.
+    Whisper se confunde con silencios largos: inventa frases y se salta lo que viene después.
+    Devuelve el mapa [(inicio_compacto, fin_compacto, inicio_original)] para volver a la hora real,
+    o None si no hay voz."""
+    margen = 0.25
+    tramos, cursor = [], 0.0
+    for a, b in sorted(silencios):
+        if a > cursor:
+            tramos.append((cursor, a))
+        cursor = max(cursor, b)
+    if cursor < duracion:
+        tramos.append((cursor, duracion))
+    juntos = []
+    for a, b in ((max(0.0, a - margen), min(duracion, b + margen)) for a, b in tramos if b - a > 0.05):
+        if juntos and a <= juntos[-1][1]:
+            juntos[-1] = (juntos[-1][0], max(juntos[-1][1], b))
+        else:
+            juntos.append((a, b))
+    if sum(b - a for a, b in juntos) < 0.5:
+        return None
+
+    with wave.open(str(wav), "rb") as entrada, wave.open(str(destino), "wb") as salida:
+        salida.setparams(entrada.getparams())
+        tasa, ancho = entrada.getframerate(), entrada.getsampwidth() * entrada.getnchannels()
+        silencio = b"\x00" * (int(PAUSA * tasa) * ancho)
+        mapa, posicion = [], 0.0
+        for a, b in juntos:
+            entrada.setpos(min(int(a * tasa), entrada.getnframes()))
+            cuadros = entrada.readframes(int((b - a) * tasa))
+            largo = len(cuadros) / ancho / tasa
+            salida.writeframes(cuadros + silencio)
+            mapa.append((posicion, posicion + largo, a))
+            posicion += largo + PAUSA
+    return mapa
+
+
+def tramo_de(t, mapa):
+    """Índice del tramo al que pertenece el instante t del audio compactado."""
+    for i, (_, fin, _) in enumerate(mapa):
+        if t < fin + PAUSA / 2:
+            return i
+    return len(mapa) - 1
+
+
+def a_hora_real(segmentos, mapa):
+    """Pasa los segmentos de Whisper a la hora real. Si un segmento cruza de un tramo a otro
+    (dos frases que en la reunión estaban separadas), lo corta usando la hora de cada palabra."""
+    def real(t, i):
+        inicio, fin, original = mapa[i]
+        return original + min(max(0.0, t - inicio), fin - inicio)
+
+    salida = []
+    for desde, hasta, texto, fichas in segmentos:
+        grupos = []
+        for f_desde, f_hasta, f_texto in fichas:
+            i = tramo_de((f_desde + f_hasta) / 2, mapa)
+            if grupos and grupos[-1][0] == i:
+                grupos[-1][2] = f_hasta
+                grupos[-1][3] += f_texto
+            else:
+                grupos.append([i, f_desde, f_hasta, f_texto])
+        if len(grupos) <= 1:
+            i = tramo_de(desde, mapa)
+            salida.append((real(desde, i), real(hasta, tramo_de(hasta, mapa)), texto))
+        else:
+            salida += [(real(a, i), real(b, i), t.strip()) for i, a, b, t in grupos if t.strip()]
+    return salida
+
+
 def fraccion_con_voz(inicio, fin, silencios):
     largo = max(fin - inicio, 1e-3)
     en_silencio = sum(max(0.0, min(fin, b) - max(inicio, a)) for a, b in silencios)
@@ -116,9 +190,10 @@ def fraccion_con_voz(inicio, fin, silencios):
 # ---------- 2. Whisper ----------
 
 def transcribir(wav, config, etiqueta):
-    base = wav.with_suffix("")
+    base = wav.with_suffix("")          # whisper agrega ".json" a este nombre
+    salida_json = Path(f"{base}.json")
     comando = [herramienta("whisper-cli"), "-m", str(config["modelo"]), "-f", str(wav),
-               "-l", config["idioma"], "-oj", "-of", str(base), "-pp", "-np"]
+               "-l", config["idioma"], "-oj", "-ojf", "-of", str(base), "-pp", "-np"]
     proceso = subprocess.Popen(comando, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     ultimo = -1
     cola = []
@@ -131,10 +206,16 @@ def transcribir(wav, config, etiqueta):
                 decir("ETAPA", f"transcribiendo {etiqueta} {avance}%")
     if proceso.wait() != 0:
         raise RuntimeError("whisper falló: " + "".join(cola).strip()[-300:])
-    datos = json.loads(base.with_suffix(".json").read_text(encoding="utf-8", errors="replace"))
-    base.with_suffix(".json").unlink(missing_ok=True)
-    return [(s["offsets"]["from"] / 1000, s["offsets"]["to"] / 1000, s["text"].strip())
-            for s in datos.get("transcription", []) if s.get("text", "").strip()]
+    datos = json.loads(salida_json.read_text(encoding="utf-8", errors="replace"))
+    salida_json.unlink(missing_ok=True)
+    segmentos = []
+    for s in datos.get("transcription", []):
+        if not s.get("text", "").strip():
+            continue
+        fichas = [(t["offsets"]["from"] / 1000, t["offsets"]["to"] / 1000, t["text"])
+                  for t in s.get("tokens", []) if not t.get("text", "").startswith("[_")]
+        segmentos.append((s["offsets"]["from"] / 1000, s["offsets"]["to"] / 1000, s["text"].strip(), fichas))
+    return segmentos
 
 
 def limpiar(segmentos, silencios):
@@ -274,13 +355,16 @@ def main():
             wav = carpeta / f"{ruta.stem}.16k.wav"
             volumen, silencios, segundos = preparar_pista(ruta, wav)
             duracion = max(duracion, segundos)
-            if volumen < -50:
-                decir("ETAPA", f"{etiqueta}: sin sonido, la salto")
-                wav.unlink(missing_ok=True)
-                continue
-            segmentos = limpiar(transcribir(wav, config, etiqueta), silencios)
+            compacto = carpeta / f"{ruta.stem}.voz.wav"
+            mapa = compactar(wav, silencios, segundos, compacto) if volumen >= -50 else None
             wav.unlink(missing_ok=True)
-            transcritas.append((quien, segmentos))
+            if mapa is None:
+                decir("ETAPA", f"{etiqueta}: sin voz, la salto")
+                compacto.unlink(missing_ok=True)
+                continue
+            segmentos = a_hora_real(transcribir(compacto, config, etiqueta), mapa)
+            compacto.unlink(missing_ok=True)
+            transcritas.append((quien, limpiar(segmentos, silencios)))
 
         por_quien = dict(transcritas)
         if config["nombre"] in por_quien and "Llamada" in por_quien:
