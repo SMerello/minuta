@@ -5,7 +5,18 @@ import UniformTypeIdentifiers
 // Grabar → Detener → transcribe con Whisper en tu Mac → resume con Claude → deja todo en ~/Reuniones.
 
 final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
-    private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    private let item: NSStatusItem = {
+        // macOS pone los íconos nuevos a la izquierda de los demás; en los Mac con muesca eso suele
+        // quedar escondido tras la cámara. La primera vez lo dejo a la derecha, junto al wifi;
+        // si después lo mueves con ⌘ + arrastrar, macOS recuerda tu posición.
+        let clave = "NSStatusItem Preferred Position minuta"
+        if UserDefaults.standard.object(forKey: clave) == nil {
+            UserDefaults.standard.set(150.0, forKey: clave)
+        }
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.autosaveName = "minuta"
+        return item
+    }()
     private let grabador = Grabador()
     private var grabandoDesde: Date?
     private var reloj: Timer?
@@ -81,7 +92,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             boton.contentTintColor = .systemRed
             boton.title = " " + Self.duracion(desde: desde)
         } else {
-            let simbolo = enProceso.isEmpty ? "waveform" : "waveform.badge.ellipsis"
+            let simbolo = enProceso.isEmpty ? "record.circle" : "ellipsis.circle"
             boton.image = NSImage(systemSymbolName: simbolo, accessibilityDescription: "Minuta")
             boton.contentTintColor = nil
             boton.title = ""

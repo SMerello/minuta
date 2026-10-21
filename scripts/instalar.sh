@@ -31,7 +31,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Minuta"
 cp "$RAIZ/Recursos/Info.plist" "$APP/Contents/Info.plist"
-cp "$RAIZ/Recursos/procesar.py" "$APP/Contents/Resources/"
+cp "$RAIZ/Recursos/procesar.py" "$RAIZ/Recursos/Minuta.icns" "$APP/Contents/Resources/"
 cp -R "$RAIZ/Recursos/plantillas" "$APP/Contents/Resources/"
 # Firma local (ad hoc): basta para correr en tu Mac. Para repartirla a otros hay que firmar con Apple.
 codesign --force --deep --sign - "$APP"

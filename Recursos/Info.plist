@@ -2,13 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleName</key>
-	<string>Minuta</string>
 	<key>CFBundleDisplayName</key>
+	<string>Minuta</string>
+	<key>CFBundleExecutable</key>
+	<string>Minuta</string>
+	<key>CFBundleIconFile</key>
 	<string>Minuta</string>
 	<key>CFBundleIdentifier</key>
 	<string>ai.caravana.minuta</string>
-	<key>CFBundleExecutable</key>
+	<key>CFBundleName</key>
 	<string>Minuta</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
