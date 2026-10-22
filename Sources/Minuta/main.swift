@@ -74,6 +74,11 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         llamadas.vigilar()
         ajustes.llamadas = llamadas
+        ventanaReuniones.alGrabar = { [weak self] in
+            guard let self, self.grabandoDesde == nil else { return }
+            self.grabar()
+        }
+        ventanaReuniones.alDetener = { [weak self] in self?.detener() }
         dictado.alOrdenar = { [weak self] in
             self?.ordenandoDictado = true
             self?.refrescar()
@@ -186,7 +191,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if ultimoResumen != nil {
             menu.addItem(accion("Abrir último resumen", #selector(abrirUltimo)))
         }
-        menu.addItem(accion("Reuniones…", #selector(abrirReuniones), tecla: "o"))
+        menu.addItem(accion("Abrir Minuta…", #selector(abrirReuniones), tecla: "o"))
         menu.addItem(accion("Abrir carpeta de reuniones", #selector(abrirCarpeta)))
         menu.addItem(accion("Ajustes…", #selector(abrirAjustes), tecla: ","))
         menu.addItem(accion("Cómo se usa", #selector(ayuda)))
@@ -207,6 +212,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func refrescar() {
+        ventanaReuniones.actualizarGrabando(grabandoDesde != nil)   // el botón Grabar / Detener de la ventana
         guard let boton = item.button else { return }
         // Espacio termina solo el dictado largo: nunca en reuniones ni en el dictado corto (ahí se suelta ⌃⌥).
         espacio.activo = dictado.activo && !mantener.grabando
@@ -600,6 +606,8 @@ enum Config {
     }
 
     static var idioma: String { (json["idioma"] as? String) ?? "es" }
+    /// Para el saludo de la ventana ("Buenas tardes, Santiago.").
+    static var nombre: String { (json["nombre"] as? String) ?? "Santiago" }
     static var vocabulario: String { (json["vocabulario"] as? String) ?? "" }
     /// Modelo de Claude para ordenar los dictados largos ("sonnet" ordena mejor que "haiku" y tarda casi lo mismo).
     static var modeloDictado: String { (json["modelo_dictado"] as? String) ?? "sonnet" }
