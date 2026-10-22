@@ -23,6 +23,8 @@ Graba tus reuniones desde la barra de arriba del Mac, las transcribe **en tu pro
 
 **Barra flotante:** mientras grabas o dictas aparece abajo una barra con unas barritas que se mueven con tu voz (si quedan planas mientras hablas, el micrófono no está captando), el tiempo y tres botones: pausa (solo en reuniones: no graba nada mientras dura), detener y ✕ para descartar (la reunión descartada va a la Papelera, sin resumen). Si un dictado se pegó en el lugar equivocado, ícono › **Copiar último dictado**.
 
+**Transcripción en vivo:** mientras grabas una reunión, Minuta guarda además una copia liviana del audio (`microfono.pcm`, `llamada.pcm`) y la va transcribiendo de a trozos de ~20 s cortados en los silencios. Al detener solo falta el último trozo y el resumen, así que la espera ya no depende del largo de la reunión (unos 45 s en una de prueba). Las copias livianas se borran al terminar.
+
 **Ver los dictados y las reuniones:** ícono › **Abrir Minuta…** (⌘O) abre una ventana con barra lateral y tarjetas. En **Inicio** están el saludo, tus cifras (dictados, palabras, reuniones y horas) y todos los dictados y reuniones por día, en máximo 3 líneas cada uno: clic en un dictado lo copia, clic en una reunión la abre. En **Reuniones** está la lista con buscador y el botón para grabar; cada reunión se ve en pestañas Notas, Minuta y Transcripción, con botones para copiar el correo de seguimiento o las notas. Se actualiza sola cuando termina de procesarse una reunión.
 
 **Llamadas:** cuando Zoom, Teams, Meet (en el navegador), WhatsApp o FaceTime abren el micrófono, Minuta pregunta si graba; al terminar la llamada ofrece "Detener y resumir". Si a los 30 s de grabar tu micrófono no ha captado voz, avisa qué micrófono está usando el Mac. Se apaga en Ajustes.
