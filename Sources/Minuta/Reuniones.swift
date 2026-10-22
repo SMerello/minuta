@@ -427,6 +427,7 @@ struct Reunion {
     let estado: String?        // nil si ya tiene resumen; si no, "procesando…" o qué falló
     let etapa: String?         // lo último que anotó procesar.py en proceso.log
     let app: String?           // de info.json ({"app": "Google Meet"}), si la grabación partió con una llamada
+    let asistentes: [String]   // de info.json: los invitados según el calendario (sin ti)
     let tldr: String?          // el TL;DR de las notas (o el resumen), en una sola línea, para las listas
 
     private static let archivos = ["resumen.md", "minuta.md", "transcripcion.md", "proceso.log", "info.json"]
@@ -443,12 +444,17 @@ struct Reunion {
         let info = leer("info.json").flatMap { $0.data(using: .utf8) }
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         app = (info?["app"] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+        asistentes = (info?["asistentes"] as? [[String: Any]] ?? []).compactMap { $0["nombre"] as? String }
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let delCalendario = (info?["titulo"] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
         tldr = resumen.flatMap(Reunion.tldr(de:))
 
         let nombre = carpeta.lastPathComponent
         let creada = (try? carpeta.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
         fecha = Reunion.formatoCarpeta.date(from: String(nombre.prefix(15))) ?? creada
-        titulo = resumen.flatMap(Reunion.titulo(de:)) ?? Reunion.tema(de: nombre)
+        // Mientras se procesa (sin resumen ni nombre en la carpeta), el título del calendario en vez de "Reunión".
+        let tema = Reunion.tema(de: nombre)
+        titulo = resumen.flatMap(Reunion.titulo(de:)) ?? (tema == "Reunión" ? delCalendario : nil) ?? tema
         duracion = transcripcion?.components(separatedBy: "\n").first?
             .components(separatedBy: " · ").last
             .flatMap { $0.hasSuffix("min") ? $0.trimmingCharacters(in: .whitespaces) : nil }
@@ -891,9 +897,14 @@ enum Pagina {
         let venta = r.esVenta ? #"<span class="marca">Venta</span>"# : ""
         let antes = sub.map { #"<div class="sub">\#(Markdown.escapar($0))</div>"# } ?? ""
         let fecha = r.fechaLarga + (r.app.map { " · \($0)" } ?? "")
+        // "Con Marcela Pérez, Rodrigo Soto" (los invitados del calendario); si son muchos, "y 4 más".
+        let nombres = r.asistentes.count > 6
+            ? r.asistentes.prefix(5).joined(separator: ", ") + " y \(r.asistentes.count - 5) más"
+            : r.asistentes.joined(separator: ", ")
+        let con = r.asistentes.isEmpty ? "" : #"<div class="con">Con \#(Markdown.escapar(nombres))</div>"#
         return """
         <header>\(antes)<h1>\(Markdown.escapar(r.titulo))</h1>\
-        <div class="fecha"><span>\(Markdown.escapar(fecha))</span>\(venta)</div></header>
+        <div class="fecha"><span>\(Markdown.escapar(fecha))</span>\(venta)</div>\(con)</header>
         """
     }
 
@@ -1073,6 +1084,7 @@ enum Pagina {
     .sub { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--tenue); margin-bottom: 4px; }
     h1 { font-family: var(--serif); font-size: 32px; line-height: 1.18; font-weight: 500; letter-spacing: -.012em; margin: 0 0 6px; }
     .fecha { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--tenue); font-size: 13.5px; }
+    .con { color: var(--tenue); font-size: 13.5px; margin-top: 4px; }
     .marca { font-size: 11.5px; font-weight: 600; color: var(--venta); background: var(--venta-fondo); border-radius: 999px; padding: 1px 9px; }
     h2 { font-size: 18px; line-height: 1.3; font-weight: 650; letter-spacing: -.012em; margin: 34px 0 10px; }
     h3 { font-size: 15px; font-weight: 600; margin: 22px 0 6px; }
