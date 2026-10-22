@@ -507,6 +507,42 @@ def slug(texto):
     return re.sub(r"[^a-z0-9]+", "-", texto).strip("-")[:50]
 
 
+# ---------- Calendario ----------
+
+def del_calendario(carpeta):
+    """Lo que la app anotó del Calendario del Mac en info.json al empezar a grabar: (texto para Claude, título).
+    Sin info.json, o sin título ni invitados, devuelve ("", None)."""
+    try:
+        info = json.loads((carpeta / "info.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "", None
+    if not isinstance(info, dict):
+        return "", None
+    titulo = str(info.get("titulo") or "").strip() or None
+    invitados = []
+    for a in info.get("asistentes") or []:
+        if not isinstance(a, dict):
+            continue
+        nombre, email = str(a.get("nombre") or "").strip(), str(a.get("email") or "").strip()
+        quien = f"{nombre} <{email}>" if nombre and email and nombre != email else (nombre or email)
+        if quien:
+            invitados.append(quien + (" (organiza)" if a.get("organizador") else ""))
+    if not titulo and not invitados:
+        return "", None
+    horario = ""
+    try:
+        inicio, fin = (dt.datetime.fromisoformat(info[k]) for k in ("inicio", "fin"))
+        horario = f" (de {inicio:%H:%M} a {fin:%H:%M})"
+    except (KeyError, TypeError, ValueError):
+        pass
+    texto = (f"Según el calendario, la reunión es «{titulo}»{horario}." if titulo
+             else f"Según el calendario{horario}:")
+    if invitados:
+        texto += (f" Invitados: {', '.join(invitados)}. Úsalos para identificar a las personas; "
+                  f"la pista \"Llamada\" puede incluir a varios de ellos.")
+    return texto, titulo
+
+
 # ---------- Principal ----------
 
 def main():
@@ -603,6 +639,10 @@ def main():
                  f"\"{config['nombre']}\" es el micrófono del Mac (la persona que grabó; si la reunión fue "
                  f"presencial, también se escucha ahí al resto de la sala). \"Llamada\" es todo lo que sonó por "
                  f"el computador (puede ser más de una persona). \"Audio\" es un archivo de una sola pista.")
+        # Calendario: el nombre de la reunión y los invitados, si la app los encontró al grabar.
+        sobre_calendario, titulo_calendario = del_calendario(carpeta)
+        if sobre_calendario:
+            datos += "\n" + sobre_calendario
         try:
             resumen = resumir(texto, datos, config, carpeta)
         except Exception as e:  # la transcripción ya quedó guardada: aviso y entrego eso
@@ -610,6 +650,7 @@ def main():
             decir("LISTO", str(carpeta / "transcripcion.md"))
             return 2
         titulo, resumen = separar_titulo(resumen)
+        titulo = titulo or titulo_calendario   # si Claude no puso TITULO, la carpeta toma el del calendario
         # La plantilla puede agregar una minuta comercial después de "===MINUTA===": va en su propio archivo.
         resumen, _, minuta = resumen.partition("===MINUTA===")
         resumen_md.write_text(resumen.strip() + "\n", encoding="utf-8")

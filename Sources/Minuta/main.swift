@@ -63,7 +63,15 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         mantener.vigilar()
         llamadas.alEmpezar = { [weak self] app in
             guard let self, self.grabandoDesde == nil else { return }
-            self.oferta.mostrar("Empezó una llamada en \(app). ¿La grabo?", boton: "Grabar", durante: 25) { [weak self] in
+            // Si el calendario dice qué reunión es, la nombra: "Empezó «Reunión de prueba» en Google Meet".
+            let texto: String
+            if let evento = Calendario.reunionAhora() {
+                let nombre = evento.titulo.count > 40 ? String(evento.titulo.prefix(39)).trimmingCharacters(in: .whitespaces) + "…" : evento.titulo
+                texto = "Empezó «\(nombre)» en \(evento.app ?? app). ¿La grabo?"
+            } else {
+                texto = "Empezó una llamada en \(app). ¿La grabo?"
+            }
+            self.oferta.mostrar(texto, boton: "Grabar", durante: 25) { [weak self] in
                 guard let self, self.grabandoDesde == nil else { return }
                 self.grabar()
             }
@@ -76,6 +84,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         llamadas.vigilar()
         ajustes.llamadas = llamadas
+        // El permiso del calendario se pide una sola vez: después macOS recuerda la respuesta.
+        if Calendario.encendido, Calendario.sinPreguntar { Calendario.pedirPermiso() }
         ventanaReuniones.alGrabar = { [weak self] in
             guard let self, self.grabandoDesde == nil else { return }
             self.grabar()
@@ -372,9 +382,13 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 grabandoDesde = Date()
                 // Transcribe mientras hablan: al detener solo falta el último trozo y el resumen.
                 enVivo[carpeta.path] = procesar(["--carpeta", carpeta.path, "--en-vivo"], clave: carpeta.path)
-                // De qué app fue (la ventana de reuniones lo muestra: "13:51 · Google Meet").
-                if let app = llamadas.appActual,
-                   let datos = try? JSONSerialization.data(withJSONObject: ["app": app]) {
+                // De qué app fue (la ventana de reuniones lo muestra: "13:51 · Google Meet") y, si está en el
+                // calendario, qué reunión es y a quién invitaron (procesar.py se lo pasa a Claude).
+                var info: [String: Any] = llamadas.appActual.map { ["app": $0] } ?? [:]
+                if let evento = Calendario.reunionAhora() {
+                    info.merge(evento.info) { _, delCalendario in delCalendario }   // el link de video manda
+                }
+                if !info.isEmpty, let datos = try? JSONSerialization.data(withJSONObject: info, options: [.prettyPrinted]) {
                     try? datos.write(to: carpeta.appendingPathComponent("info.json"))
                 }
                 avisoMicrofono = false

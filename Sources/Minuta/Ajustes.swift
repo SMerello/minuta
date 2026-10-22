@@ -27,6 +27,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
     private let casillaLlamadas = NSButton(checkboxWithTitle: "Ofrecer grabar cuando empieza una", target: nil, action: nil)
     private let casillaVolumen = NSButton(checkboxWithTitle: "Bajar la música mientras dicto", target: nil, action: nil)
     private let botonCorrecciones = NSButton(title: "Editar mi lista…", target: nil, action: nil)
+    private let casillaCalendario = NSButton(checkboxWithTitle: "Nombrar las reuniones con él", target: nil, action: nil)
     private var capturando: Accion?
     private var monitor: Any?
 
@@ -63,12 +64,15 @@ final class Ajustes: NSObject, NSWindowDelegate {
         botonCorrecciones.bezelStyle = .rounded
         botonCorrecciones.target = self
         botonCorrecciones.action = #selector(editarCorrecciones)
+        casillaCalendario.target = self
+        casillaCalendario.action = #selector(cambiarCalendario)
         let grilla = NSGridView(views: [
             [NSTextField(labelWithString: "Grabar reunión"), botonReunion],
             [NSTextField(labelWithString: "Dictado largo"), botonDictado],
             [NSTextField(labelWithString: "Dictado corto"), casillaMantener],
             [NSTextField(labelWithString: "Inteligencia"), casillaOrdenar],
             [NSTextField(labelWithString: "Llamadas"), casillaLlamadas],
+            [NSTextField(labelWithString: "Calendario"), casillaCalendario],
             [NSTextField(labelWithString: "Volumen"), casillaVolumen],
             [NSTextField(labelWithString: "Correcciones"), botonCorrecciones],
         ])
@@ -76,6 +80,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
         grilla.columnSpacing = 12
         grilla.column(at: 0).xPlacement = .trailing
         grilla.rowAlignment = .firstBaseline
+        grilla.setContentHuggingPriority(.required, for: .vertical)   // filas parejas: el espacio que sobre no va entre ellas
 
         aviso.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         aviso.alignment = .center
@@ -113,6 +118,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
         casillaOrdenar.state = Dictado.ordenarConIA ? .on : .off
         casillaLlamadas.state = llamadas?.encendido ?? true ? .on : .off
         casillaVolumen.state = Volumen.encendido ? .on : .off
+        casillaCalendario.state = Calendario.encendido ? .on : .off
     }
 
     private func avisar(_ texto: String, error: Bool = false) {
@@ -144,6 +150,26 @@ final class Ajustes: NSObject, NSWindowDelegate {
         avisar(casillaLlamadas.state == .on
                ? "Cuando Zoom, Teams, Meet o WhatsApp abran el micrófono, te pregunto si grabo."
                : "No te voy a preguntar al empezar una llamada.")
+    }
+
+    /// Al prenderla, si macOS nunca preguntó, pide el permiso; si se lo negaste, dice dónde darlo.
+    @objc private func cambiarCalendario() {
+        Calendario.encendido = casillaCalendario.state == .on
+        let listo = "Las reuniones que grabes toman el nombre y los invitados de tu calendario."
+        guard Calendario.encendido else {
+            avisar("Las reuniones se nombran solo por lo que se habló.")
+            return
+        }
+        if Calendario.conPermiso {
+            avisar(listo)
+        } else if Calendario.sinPreguntar {
+            avisar("macOS te va a pedir permiso para ver el calendario.")
+            Calendario.pedirPermiso { [weak self] dado in
+                self?.avisar(dado ? listo : "Sin permiso no puedo ver el calendario.", error: !dado)
+            }
+        } else {
+            avisar("Dale permiso en Ajustes del Sistema › Privacidad y seguridad › Calendarios › Minuta.", error: true)
+        }
     }
 
     @objc private func cambiarOrdenar() {
