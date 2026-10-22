@@ -31,6 +31,8 @@ Graba tus reuniones desde la barra de arriba del Mac, las transcribe **en tu pro
 
 **Dock y volumen:** Minuta puede quedar fija en el Dock; al hacerle clic (o al abrirla de nuevo desde Spotlight) se abre su ventana, y mientras la ventana está abierta aparece en ⌘Tab. Al dictar, el volumen del Mac baja a un cuarto (música, videos) y vuelve como estaba al terminar; en reuniones no se toca. Se apaga en Ajustes.
 
+**Calendario:** si das permiso al Calendario, al empezar a grabar Minuta busca la reunión que está ocurriendo (prefiere la que tiene link de Meet, Zoom o Teams) y guarda en `info.json` su título, invitados y horario. Claude usa los nombres para saber quién es quién, la carpeta toma ese nombre si hace falta, y el cartel de llamada dice «Empezó «Reunión de prueba» en Google Meet». Se apaga en Ajustes.
+
 **Correcciones:** tu lista de palabras que Whisper escribe mal está en `~/Library/Application Support/Minuta/correcciones.txt` (ícono › Ajustes… › Correcciones › Editar mi lista…), una por línea: `Bucines → Business`. Se aplica a los dictados y a las reuniones nuevas, solo a palabras o frases completas y sin importar mayúsculas.
 
 **Atajos:** ⌃⌥R (reunión) y ⌃⌥Espacio (dictado largo) son los de fábrica; los cambias en ícono › **Ajustes…** (haz clic en el atajo y aprieta la combinación nueva). Ahí también se apaga el dictado corto con ⌃⌥.
