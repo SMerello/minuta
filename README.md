@@ -82,7 +82,7 @@ python3 Recursos/procesar.py --carpeta ~/Reuniones/2026-10-21-1530
 ## Limitaciones
 
 - La pista "Llamada" junta a todas las personas remotas: no separa voces dentro de ella (el resumen lo deduce por contexto).
-- La app va firmada solo para tu Mac (firma *ad hoc*). Para repartirla ya armada a otros hay que firmarla con una cuenta de desarrollador de Apple.
+- El instalador firma la app con tu certificado "Apple Development" si lo tienes en el llavero (lo crea Xcode al entrar con tu Apple ID), o con el que indiques en `MINUTA_FIRMA`. Así macOS la reconoce como la misma app y los permisos se mantienen al reinstalar. Sin certificado usa firma *ad hoc*, y los permisos hay que darlos de nuevo en cada reinstalación. Para repartirla ya armada a otros hay que firmarla con "Developer ID" y notarizarla.
 
 ## Licencia
 

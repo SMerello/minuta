@@ -33,8 +33,20 @@ cp "$BIN" "$APP/Contents/MacOS/Minuta"
 cp "$RAIZ/Recursos/Info.plist" "$APP/Contents/Info.plist"
 cp "$RAIZ/Recursos/procesar.py" "$RAIZ/Recursos/Minuta.icns" "$APP/Contents/Resources/"
 cp -R "$RAIZ/Recursos/plantillas" "$APP/Contents/Resources/"
-# Firma local (ad hoc): basta para correr en tu Mac. Para repartirla a otros hay que firmar con Apple.
-codesign --force --deep --sign - "$APP"
+# Firma con un certificado del llavero ("Apple Development" o el que diga MINUTA_FIRMA).
+# Así macOS reconoce la misma app en cada reinstalación y no se pierden los permisos
+# (micrófono, grabación de pantalla, accesibilidad). La firma ad hoc cambia en cada
+# compilación, por eso queda solo de respaldo si no hay certificado.
+FIRMA="${MINUTA_FIRMA:-$(security find-identity -v -p codesigning \
+  | awk -F'"' '/Apple Development/ {print $2; exit}')}"
+if [[ -n "$FIRMA" ]]; then
+  echo "→ Firmando con: $FIRMA"
+  codesign --force --deep --sign "$FIRMA" "$APP"
+else
+  echo "⚠ No encontré un certificado para firmar: uso firma ad hoc."
+  echo "  Los permisos se van a perder en cada reinstalación."
+  codesign --force --deep --sign - "$APP"
+fi
 
 mkdir -p "$HOME/Applications"
 pkill -x Minuta 2>/dev/null || true
