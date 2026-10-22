@@ -4,76 +4,118 @@ import AVFoundation
 
 /// Dictado: graba el micrófono, lo transcribe con Whisper y escribe el texto donde está el cursor.
 /// El texto además queda en el portapapeles y en el historial ~/Reuniones/Dictados/AAAA-MM-DD.md.
+/// Mientras hablas, el audio se corta en los silencios y cada trozo se transcribe (y, si es largo,
+/// Claude lo ordena) al tiro: al terminar solo queda el último trozo.
 final class Dictado {
-    private var grabadora: AVAudioRecorder?
-    private var archivo: URL?
-    private(set) var desde: Date?
+    /// Lo que se escribe: el texto final y, si lo ordenó Claude, lo que dijiste tal cual.
+    struct Entrega {
+        let texto: String
+        let original: String?
+        /// Era largo pero Claude no pudo ordenarlo: va tal cual.
+        let sinOrdenar: Bool
+    }
 
-    var activo: Bool { grabadora != nil }
+    private var motor: AVAudioEngine?
+    private var toma: Toma?
+    private var revision: Timer?
+
+    /// Se llama (en el hilo principal) cuando ya está transcrito y falta que Claude termine de ordenarlo.
+    var alOrdenar: (() -> Void)?
+
+    var activo: Bool { motor != nil }
+    var desde: Date? { motor == nil ? nil : toma?.desde }
 
     func empezar() throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("minuta-dictado-\(UUID().uuidString).wav")
-        // WAV 16 kHz mono: lo que Whisper usa directo, sin convertir.
-        let ajustes: [String: Any] = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: 16_000,
-            AVNumberOfChannelsKey: 1,
-            AVLinearPCMBitDepthKey: 16,
-            AVLinearPCMIsFloatKey: false,
-            AVLinearPCMIsBigEndianKey: false,
-        ]
-        let grabadora = try AVAudioRecorder(url: url, settings: ajustes)
-        grabadora.isMeteringEnabled = true   // para las barritas que se mueven con tu voz
-        guard grabadora.record() else { throw ErrorDictado.noGraba }
+        let motor = AVAudioEngine()
+        let entrada = motor.inputNode
+        let formato = entrada.outputFormat(forBus: 0)
+        // 16 kHz mono: lo que Whisper usa directo.
+        guard formato.sampleRate > 0, let destino = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000,
+                                                                  channels: 1, interleaved: false),
+              let convertidor = AVAudioConverter(from: formato, to: destino) else { throw ErrorDictado.noGraba }
+        let toma = Toma()
+        entrada.installTap(onBus: 0, bufferSize: 4096, format: formato) { buffer, _ in
+            let capacidad = AVAudioFrameCount(Double(buffer.frameLength) * 16_000 / formato.sampleRate) + 32
+            guard let salida = AVAudioPCMBuffer(pcmFormat: destino, frameCapacity: capacidad) else { return }
+            var entregado = false
+            convertidor.convert(to: salida, error: nil) { _, estado in
+                if entregado { estado.pointee = .noDataNow; return nil }
+                entregado = true
+                estado.pointee = .haveData
+                return buffer
+            }
+            guard salida.frameLength > 0, let canal = salida.floatChannelData?[0] else { return }
+            toma.agregar(Array(UnsafeBufferPointer(start: canal, count: Int(salida.frameLength))))
+        }
+        motor.prepare()
+        do { try motor.start() } catch { entrada.removeTap(onBus: 0); throw ErrorDictado.noGraba }
         ServidorWhisper.compartido.preparar()   // carga el modelo mientras hablas
-        self.grabadora = grabadora
-        archivo = url
-        desde = Date()
+        self.motor = motor
+        self.toma = toma
+        // Cuatro veces por segundo: ¿hay un silencio donde cortar un trozo? ¿ya conviene abrir Claude?
+        revision = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in toma.revisar() }
     }
 
     /// Volumen del micrófono ahora mismo, de 0 (silencio) a 1.
-    func nivel() -> Float {
-        guard let grabadora else { return 0 }
-        grabadora.updateMeters()
-        return nivelDeVoz(decibeles: grabadora.averagePower(forChannel: 0))
-    }
+    func nivel() -> Float { activo ? toma?.nivel ?? 0 : 0 }
 
     /// Corta sin transcribir ni escribir nada (el botón ✕ de la barra).
     func descartar() {
-        grabadora?.stop()
-        if let archivo { try? FileManager.default.removeItem(at: archivo) }
-        grabadora = nil
-        archivo = nil
-        desde = nil
+        detenerMotor()
+        toma?.descartar()
+        toma = nil
         ServidorWhisper.compartido.soltar()
     }
 
-    /// Detiene, transcribe y entrega el texto (o nil si no se entendió nada) en el hilo principal.
-    func terminar(alTerminar: @escaping (Result<String?, Error>) -> Void) {
-        guard let grabadora, let archivo, let desde else { return }
-        self.grabadora = nil
-        self.desde = nil
-        let segundos = Date().timeIntervalSince(desde)
+    /// Detiene, termina de transcribir (y ordenar) y entrega el texto, o nil si no se entendió nada, en el hilo principal.
+    func terminar(alTerminar: @escaping (Result<Entrega?, Error>) -> Void) {
+        guard let motor, let toma else { return }
+        self.motor = nil
+        self.toma = nil
+        revision?.invalidate()
+        revision = nil
+        let alOrdenar = self.alOrdenar
         // Sigue grabando medio segundo más: la gente aprieta el atajo antes de terminar la última palabra.
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.5) {
-            grabadora.stop()
-            defer { try? FileManager.default.removeItem(at: archivo) }
-            let resultado: Result<String?, Error>
-            if segundos < 0.6 {
-                resultado = .success(nil)
-            } else {
-                resultado = Result { try Dictado.transcribir(archivo) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            motor.inputNode.removeTap(onBus: 0)
+            motor.stop()
+            toma.cerrar(alOrdenar: { DispatchQueue.main.async { alOrdenar?() } }) { resultado in
+                DispatchQueue.main.async { alTerminar(resultado) }
             }
-            DispatchQueue.main.async { alTerminar(resultado) }
         }
     }
 
-    private static func transcribir(_ wav: URL) throws -> String? {
-        let duracion = (try? AVAudioFile(forReading: wav)).map { Double($0.length) / $0.fileFormat.sampleRate } ?? 30
-        let bruto = try ServidorWhisper.compartido.transcribir(wav, segundos: duracion) ?? transcribirSinServidor(wav)
+    private func detenerMotor() {
+        revision?.invalidate()
+        revision = nil
+        motor?.inputNode.removeTap(onBus: 0)
+        motor?.stop()
+        motor = nil
+    }
+
+    /// Transcribe un trozo de audio (16 kHz mono). "" si no había voz.
+    static func transcribir(_ muestras: [Float]) throws -> String {
+        let wav = FileManager.default.temporaryDirectory.appendingPathComponent("minuta-trozo-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: wav) }
+        try escribirWAV(muestras, en: wav)
+        let segundos = Double(muestras.count) / 16_000
+        let bruto = try ServidorWhisper.compartido.transcribir(wav, segundos: segundos) ?? transcribirSinServidor(wav)
         let texto = bruto.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }.joined(separator: " ")
-        return texto.isEmpty || esAlucinacion(texto) ? nil : texto
+        return esAlucinacion(texto) ? "" : texto
+    }
+
+    private static func escribirWAV(_ muestras: [Float], en url: URL) throws {
+        let ajustes: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16_000,
+                                      AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16,
+                                      AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false]
+        let archivo = try AVAudioFile(forWriting: url, settings: ajustes, commonFormat: .pcmFormatFloat32, interleaved: false)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: archivo.processingFormat,
+                                            frameCapacity: AVAudioFrameCount(muestras.count)),
+              let canal = buffer.floatChannelData?[0] else { throw ErrorDictado.whisperFallo }
+        buffer.frameLength = AVAudioFrameCount(muestras.count)
+        muestras.withUnsafeBufferPointer { canal.update(from: $0.baseAddress!, count: muestras.count) }
+        try archivo.write(from: buffer)
     }
 
     /// Como antes del servidor: whisper-cli carga el modelo en cada dictado (unos segundos más).
@@ -156,13 +198,14 @@ final class Dictado {
         ordenarConIA && texto.split(whereSeparator: { $0.isWhitespace }).count >= palabrasParaOrdenar
     }
 
-    /// Le pasa el dictado a Claude (`claude -p`, con tu suscripción) para sacar repeticiones, muletillas
-    /// y vueltas. Tarda unos 6 s. Devuelve nil si Claude no está o no respondió: ahí se escribe tal cual.
-    static func ordenar(_ texto: String) -> String? {
-        guard let claude = ["/opt/homebrew/bin/claude", "/usr/local/bin/claude",
-                            FileManager.default.homeDirectoryForCurrentUser.path + "/.local/bin/claude"]
-            .first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { return nil }
-        // Tu versión en Application Support (si la hiciste) manda sobre la del repo.
+    static func rutaClaude() -> String? {
+        ["/opt/homebrew/bin/claude", "/usr/local/bin/claude",
+         FileManager.default.homeDirectoryForCurrentUser.path + "/.local/bin/claude"]
+            .first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+    }
+
+    /// Tu versión en Application Support (si la hiciste) manda sobre la del repo.
+    static func instruccionesParaOrdenar() -> String? {
         let propia = Config.soporte.appendingPathComponent("dictado.md")
         guard var instrucciones = (try? String(contentsOf: propia, encoding: .utf8))
                 ?? Bundle.main.url(forResource: "dictado", withExtension: "md", subdirectory: "plantillas")
@@ -170,7 +213,13 @@ final class Dictado {
         if !Config.vocabulario.isEmpty {
             instrucciones += "\nNombres y palabras que suele usar (escríbelos así): \(Config.vocabulario)\n"
         }
+        return instrucciones
+    }
 
+    /// De una vez, con todo el texto (cuando no se pudo ir ordenando por partes). Tarda unos 6–8 s.
+    /// Devuelve nil si Claude no está o no respondió: ahí se escribe tal cual.
+    static func ordenar(_ texto: String) -> String? {
+        guard let claude = rutaClaude(), let instrucciones = instruccionesParaOrdenar() else { return nil }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: claude)
         p.arguments = ["-p", "--model", Config.modeloDictado, "--tools", "", "--no-session-persistence",

@@ -55,6 +55,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         mantener.alInterrumpir = { [weak self] in self?.descartarDictado(sonido: false) }
         mantener.vigilar()
+        dictado.alOrdenar = { [weak self] in
+            self?.ordenandoDictado = true
+            self?.refrescar()
+        }
         espacio.alApretar = { [weak self] in
             guard let self, self.dictado.activo, !self.mantener.grabando else { return }
             self.alternarDictado()
@@ -280,27 +284,13 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             refrescar()
             dictado.terminar { [weak self] resultado in
                 guard let self else { return }
-                if case .success(let texto?) = resultado, Dictado.valeLaPenaOrdenar(texto) {
-                    // Largo: antes de escribirlo, Claude le saca las vueltas y repeticiones.
-                    self.ordenandoDictado = true
-                    self.refrescar()
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        let ordenado = Dictado.ordenar(texto)
-                        DispatchQueue.main.async {
-                            self.transcribiendoDictado = false
-                            self.ordenandoDictado = false
-                            self.refrescar()
-                            self.entregar(ordenado ?? texto, original: ordenado == nil ? nil : texto)
-                            if ordenado == nil { self.avisar("No pude ordenar el dictado", "Lo escribí tal cual lo dijiste.") }
-                        }
-                    }
-                    return
-                }
                 self.transcribiendoDictado = false
+                self.ordenandoDictado = false
                 self.refrescar()
                 switch resultado {
-                case .success(let texto?):
-                    self.entregar(texto)
+                case .success(let entrega?):
+                    self.entregar(entrega.texto, original: entrega.original)
+                    if entrega.sinOrdenar { self.avisar("No pude ordenar el dictado", "Lo escribí tal cual lo dijiste.") }
                 case .success(nil):
                     self.avisar("No escuché nada", "Revisa qué micrófono está usando el Mac (por ejemplo, los AirPods).")
                 case .failure(let error):
