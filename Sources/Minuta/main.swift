@@ -36,6 +36,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let ajustes = Ajustes()
     private let mantener = Mantener()
     private let espacio = EspacioTermina()
+    private let ventanaReuniones = VentanaReuniones()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         ServidorWhisper.compartido.limpiarRestos()
@@ -166,6 +167,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if ultimoResumen != nil {
             menu.addItem(accion("Abrir último resumen", #selector(abrirUltimo)))
         }
+        menu.addItem(accion("Reuniones…", #selector(abrirReuniones), tecla: "o"))
         menu.addItem(accion("Abrir carpeta de reuniones", #selector(abrirCarpeta)))
         menu.addItem(accion("Ajustes…", #selector(abrirAjustes), tecla: ","))
         menu.addItem(accion("Cómo se usa", #selector(ayuda)))
@@ -501,8 +503,11 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func abrirAjustes() { ajustes.mostrar() }
 
+    @objc private func abrirReuniones() { ventanaReuniones.mostrar() }
+
+    /// Abre la ventana Reuniones con la última reunión procesada ya elegida.
     @objc private func abrirUltimo() {
-        if let ultimoResumen { NSWorkspace.shared.open(ultimoResumen) }
+        if let ultimoResumen { ventanaReuniones.mostrar(seleccionar: ultimoResumen.deletingLastPathComponent()) }
     }
 
     @objc private func abrirCarpeta() {
