@@ -22,7 +22,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return item
     }()
     private let grabador = Grabador()
-    private var grabandoDesde: Date?
+    private var grabandoDesde: Date?     // se corre hacia adelante lo que dure cada pausa
+    private var pausadoDesde: Date?
     private var reloj: Timer?
     private var enProceso: [String: String] = [:]   // carpeta → etapa actual
     private var ultimoResumen: URL?
@@ -51,6 +52,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         indicador.alDetener = { [weak self] modo in
             if modo == .reunion { self?.detener() } else { self?.alternarDictado() }
+        }
+        indicador.alPausar = { [weak self] in self?.alternarPausa() }
+        indicador.alDescartar = { [weak self] modo in
+            if modo == .reunion { self?.descartarReunion() } else { self?.descartarDictado() }
         }
         let menu = NSMenu()
         menu.delegate = self
@@ -85,7 +90,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         if let desde = grabandoDesde {
-            menu.addItem(titulo("Grabando · \(Self.duracion(desde: desde))"))
+            menu.addItem(titulo("\(pausadoDesde == nil ? "Grabando" : "En pausa") · \(Self.duracion(desde: desde, hasta: pausadoDesde))"))
+            menu.addItem(accion(pausadoDesde == nil ? "Pausar" : "Seguir grabando", #selector(alternarPausa)))
             menu.addItem(accion("Detener y resumir  (⌃⌥R)", #selector(detener), tecla: "s"))
         } else {
             menu.addItem(accion("Grabar reunión  (⌃⌥R)", #selector(grabar), tecla: "r"))
@@ -96,6 +102,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(titulo("Escribiendo el dictado…"))
         } else {
             menu.addItem(accion("Dictar  (⌃⌥D)", #selector(alternarDictado), tecla: "d"))
+        }
+        if !dictado.activo, !transcribiendoDictado, Dictado.ultimo() != nil {
+            menu.addItem(accion("Copiar último dictado", #selector(copiarUltimoDictado)))
         }
         for (carpeta, etapa) in enProceso.sorted(by: { $0.key < $1.key }) {
             menu.addItem(titulo("\((carpeta as NSString).lastPathComponent): \(etapa)"))
@@ -153,7 +162,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             switch modo {
             case .dictado?: indicador.mostrar(.dictado, desde: dictado.desde ?? Date())
             case .escribiendo?: indicador.mostrar(.escribiendo)
-            case .reunion?: indicador.mostrar(.reunion, desde: grabandoDesde ?? Date())
+            case .reunion?: indicador.mostrar(.reunion, desde: grabandoDesde ?? Date(), pausadoDesde: pausadoDesde)
             case nil: indicador.ocultar()
             }
         } else {
@@ -174,14 +183,28 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return pintada
     }
 
-    private static func duracion(desde: Date) -> String {
-        let s = Int(Date().timeIntervalSince(desde))
+    private static func duracion(desde: Date, hasta: Date? = nil) -> String {
+        let s = Int((hasta ?? Date()).timeIntervalSince(desde))
         return s >= 3600
             ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
             : String(format: "%02d:%02d", s / 60, s % 60)
     }
 
     // MARK: Dictar
+
+    private func descartarDictado() {
+        guard dictado.activo else { return }
+        dictado.descartar()
+        NSSound(named: "Bottle")?.play()
+        refrescar()
+    }
+
+    @objc private func copiarUltimoDictado() {
+        guard let texto = Dictado.ultimo() else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(texto, forType: .string)
+        avisar("Último dictado copiado", texto.count > 90 ? String(texto.prefix(90)) + "…" : texto)
+    }
 
     @objc private func alternarDictado() {
         if dictado.activo {
@@ -246,8 +269,44 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Task { @MainActor in
             await grabador.detener()
             grabandoDesde = nil
+            pausadoDesde = nil
             refrescar()
             procesar(["--carpeta", carpeta.path], clave: carpeta.path)
+        }
+    }
+
+    /// Pausa o sigue la reunión. En pausa no se graba nada y el reloj se detiene.
+    @objc private func alternarPausa() {
+        guard let desde = grabandoDesde else { return }
+        if let pausa = pausadoDesde {
+            grabador.seguir()
+            grabandoDesde = desde.addingTimeInterval(Date().timeIntervalSince(pausa))
+            pausadoDesde = nil
+        } else {
+            grabador.pausar()
+            pausadoDesde = Date()
+        }
+        indicador.mostrar(.reunion, desde: grabandoDesde ?? desde, pausadoDesde: pausadoDesde)
+        refrescar()
+    }
+
+    /// Botón ✕ de la barra: corta la reunión sin resumir y manda la carpeta a la Papelera (se puede recuperar).
+    private func descartarReunion() {
+        guard grabandoDesde != nil else { return }
+        let alerta = NSAlert()
+        alerta.messageText = "¿Descartar esta grabación?"
+        alerta.informativeText = "El audio se va a la Papelera y no se hace el resumen."
+        alerta.addButton(withTitle: "Descartar")
+        alerta.addButton(withTitle: "Seguir grabando")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alerta.runModal() == .alertFirstButtonReturn,
+              grabandoDesde != nil, let carpeta = grabador.carpeta else { return }
+        Task { @MainActor in
+            await grabador.detener()
+            grabandoDesde = nil
+            pausadoDesde = nil
+            refrescar()
+            try? FileManager.default.trashItem(at: carpeta, resultingItemURL: nil)
         }
     }
 

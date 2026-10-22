@@ -12,6 +12,8 @@ final class Grabador: NSObject, SCStreamOutput, SCStreamDelegate {
     private let cola = DispatchQueue(label: "minuta.audio")
     private var pistas: [SCStreamOutputType: Pista] = [:]
     private var inicio: CMTime?
+    /// Tramos en pausa, en la misma hora que traen los buffers (reloj del Mac). El último queda abierto mientras dura.
+    private var pausas: [(desde: CMTime, hasta: CMTime?)] = []
     private(set) var carpeta: URL?
 
     /// Se llama si la grabación se corta sola (por ejemplo, si quitas el permiso).
@@ -20,6 +22,7 @@ final class Grabador: NSObject, SCStreamOutput, SCStreamDelegate {
     func iniciar(en carpeta: URL) async throws {
         self.carpeta = carpeta
         inicio = nil
+        pausas = []
         pistas = [
             .microphone: Pista(url: carpeta.appendingPathComponent("microfono.caf")),
             .audio: Pista(url: carpeta.appendingPathComponent("llamada.caf")),
@@ -58,14 +61,41 @@ final class Grabador: NSObject, SCStreamOutput, SCStreamDelegate {
         }
     }
 
+    /// En pausa no se escribe nada. Al seguir, el audio continúa pegado a lo anterior
+    /// (sin un hueco de silencio del largo de la pausa) y las dos pistas siguen alineadas.
+    func pausar() {
+        let ahora = horaActual()
+        cola.async { [self] in
+            if pausas.last.map({ $0.hasta != nil }) ?? true { pausas.append((ahora, nil)) }
+        }
+    }
+
+    func seguir() {
+        let ahora = horaActual()
+        cola.async { [self] in
+            if let ultima = pausas.last, ultima.hasta == nil { pausas[pausas.count - 1].hasta = ahora }
+        }
+    }
+
+    /// La hora en el mismo reloj con que ScreenCaptureKit marca los buffers.
+    private func horaActual() -> CMTime {
+        CMClockGetTime(stream?.synchronizationClock ?? CMClockGetHostTimeClock())
+    }
+
     // MARK: SCStreamOutput
 
     func stream(_ stream: SCStream, didOutputSampleBuffer buffer: CMSampleBuffer, of tipo: SCStreamOutputType) {
         guard tipo != .screen, buffer.isValid, let pista = pistas[tipo] else { return }
         let pts = buffer.presentationTimeStamp
+        // Los buffers llegan con un poco de atraso: se descarta lo que se grabó dentro de una pausa.
+        if pausas.contains(where: { pts >= $0.desde && ($0.hasta.map { pts < $0 } ?? true) }) { return }
         if inicio == nil { inicio = pts }
         guard let inicio, let pcm = Grabador.pcm(de: buffer) else { return }
-        pista.escribir(pcm, segundosDesdeInicio: (pts - inicio).seconds)
+        let enPausa = pausas.reduce(0.0) { suma, p in
+            guard let hasta = p.hasta, hasta <= pts, p.desde >= inicio else { return suma }
+            return suma + (hasta - p.desde).seconds
+        }
+        pista.escribir(pcm, segundosDesdeInicio: (pts - inicio).seconds - enPausa)
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {

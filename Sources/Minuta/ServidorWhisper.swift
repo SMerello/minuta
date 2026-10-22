@@ -54,6 +54,11 @@ final class ServidorWhisper {
         return texto
     }
 
+    /// Ya no se va a usar ahora (dictado descartado): se cierra tras el rato de espera de siempre.
+    func soltar() {
+        programarApagado()
+    }
+
     func apagar() {
         cola.sync {
             apagado?.cancel()

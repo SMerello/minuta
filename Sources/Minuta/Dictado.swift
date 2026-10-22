@@ -30,6 +30,16 @@ final class Dictado {
         desde = Date()
     }
 
+    /// Corta sin transcribir ni escribir nada (el botón ✕ de la barra).
+    func descartar() {
+        grabadora?.stop()
+        if let archivo { try? FileManager.default.removeItem(at: archivo) }
+        grabadora = nil
+        archivo = nil
+        desde = nil
+        ServidorWhisper.compartido.soltar()
+    }
+
     /// Detiene, transcribe y entrega el texto (o nil si no se entendió nada) en el hilo principal.
     func terminar(alTerminar: @escaping (Result<String?, Error>) -> Void) {
         guard let grabadora, let archivo, let desde else { return }
@@ -106,6 +116,18 @@ final class Dictado {
             evento?.post(tap: .cghidEventTap)
         }
         return true
+    }
+
+    /// El último dictado del historial (sirve aunque hayas cerrado Minuta entremedio).
+    static func ultimo() -> String? {
+        let carpeta = Config.carpetaReuniones.appendingPathComponent("Dictados")
+        guard let dias = try? FileManager.default.contentsOfDirectory(atPath: carpeta.path),
+              let dia = dias.filter({ $0.hasSuffix(".md") }).max(),
+              let texto = try? String(contentsOf: carpeta.appendingPathComponent(dia), encoding: .utf8),
+              let linea = texto.components(separatedBy: "\n").last(where: { $0.hasPrefix("[") }),
+              let cierre = linea.firstIndex(of: "]") else { return nil }
+        let dictado = linea[linea.index(after: cierre)...].trimmingCharacters(in: .whitespaces)
+        return dictado.isEmpty ? nil : dictado
     }
 
     /// Agrega el dictado al historial del día.
