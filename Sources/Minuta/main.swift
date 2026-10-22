@@ -346,6 +346,11 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             do {
                 try await grabador.iniciar(en: carpeta)
                 grabandoDesde = Date()
+                // De qué app fue (la ventana de reuniones lo muestra: "13:51 · Google Meet").
+                if let app = llamadas.appActual,
+                   let datos = try? JSONSerialization.data(withJSONObject: ["app": app]) {
+                    try? datos.write(to: carpeta.appendingPathComponent("info.json"))
+                }
                 avisoMicrofono = false
                 indicador.aviso = nil
                 oferta.ocultar()

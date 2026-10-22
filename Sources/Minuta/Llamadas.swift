@@ -27,6 +27,11 @@ final class Llamadas {
     /// Una llamada se da por terminada si nadie usa el micrófono durante este rato (evita cortes por un mute).
     private static let silencioParaTerminar: TimeInterval = 15
 
+    /// La app de la llamada en curso ("Google Meet", "Zoom"…), o nil si no hay llamada.
+    private(set) var appActual: String?
+
+    private static let navegadores: Set<String> = ["Chrome", "Safari", "Arc", "Brave", "Edge", "Firefox", "Opera"]
+
     private var reloj: Timer?
     private var enLlamada = false
     private var sinLlamadaDesde: Date?
@@ -35,24 +40,37 @@ final class Llamadas {
         reloj = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.revisar() }
     }
 
+    /// Mira siempre (para saber de qué app es cada reunión), pero solo ofrece grabar si está encendido.
     private func revisar() {
-        guard encendido else { return }
         let nombres = Self.appsConMicrofono()
         if let primera = nombres.first {
+            appActual = Self.navegadores.contains(primera) ? Self.llamadaEnNavegador() ?? primera : primera
             sinLlamadaDesde = nil
             if !enLlamada {
                 enLlamada = true
-                alEmpezar(primera)
+                if encendido { alEmpezar(appActual ?? primera) }
             }
         } else if enLlamada {
             let desde = sinLlamadaDesde ?? Date()
             sinLlamadaDesde = desde
             if Date().timeIntervalSince(desde) >= Self.silencioParaTerminar {
                 enLlamada = false
+                appActual = nil
                 sinLlamadaDesde = nil
-                alTerminar()
+                if encendido { alTerminar() }
             }
         }
+    }
+
+    /// Si la llamada es en el navegador, el título de la ventana dice cuál es ("Meet - abc-defg-hij").
+    /// Leer títulos de ventanas usa el permiso de Grabación de pantalla, que Minuta ya tiene para grabar.
+    private static func llamadaEnNavegador() -> String? {
+        guard let ventanas = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]] else { return nil }
+        let titulos = ventanas.compactMap { $0[kCGWindowName as String] as? String }
+        let conocidas = [("Meet", "Google Meet"), ("Teams", "Teams"), ("Zoom", "Zoom"), ("WhatsApp", "WhatsApp"),
+                         ("Webex", "Webex"), ("Slack", "Slack")]
+        return conocidas.first { nombre in titulos.contains { $0.contains(nombre.0) } }?.1
     }
 
     /// Las apps de llamadas que tienen el micrófono abierto ahora (CoreAudio, macOS 14+).
