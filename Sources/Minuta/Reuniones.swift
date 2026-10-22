@@ -70,7 +70,9 @@ final class VentanaReuniones: NSObject, NSWindowDelegate, WKNavigationDelegate {
     /// Abre la ventana (o la trae al frente). Con `carpeta`, abre directo esa reunión.
     func mostrar(seleccionar carpeta: URL? = nil) {
         preparar(seleccionar: carpeta)
-        NSApp.activate(ignoringOtherApps: true)   // la app es .accessory: sin esto la ventana queda detrás
+        // Mientras la ventana está abierta, Minuta es una app normal: se ve en el Dock y en ⌘Tab.
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
         ventana?.makeKeyAndOrderFront(nil)
     }
 
@@ -366,6 +368,8 @@ final class VentanaReuniones: NSObject, NSWindowDelegate, WKNavigationDelegate {
         // La próxima vez se abre en Inicio.
         seccion = .inicio
         elegida = nil
+        // Vuelve a vivir solo en la barra de arriba (el ícono del Dock queda fijo si lo agregaste).
+        DispatchQueue.main.async { NSApp.setActivationPolicy(.accessory) }
     }
 }
 

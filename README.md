@@ -29,6 +29,8 @@ Graba tus reuniones desde la barra de arriba del Mac, las transcribe **en tu pro
 
 **Llamadas:** cuando Zoom, Teams, Meet (en el navegador), WhatsApp o FaceTime abren el micrófono, Minuta pregunta si graba; al terminar la llamada ofrece "Detener y resumir". Si a los 30 s de grabar tu micrófono no ha captado voz, avisa qué micrófono está usando el Mac. Se apaga en Ajustes.
 
+**Dock y volumen:** Minuta puede quedar fija en el Dock; al hacerle clic (o al abrirla de nuevo desde Spotlight) se abre su ventana, y mientras la ventana está abierta aparece en ⌘Tab. Al dictar, el volumen del Mac baja a un cuarto (música, videos) y vuelve como estaba al terminar; en reuniones no se toca. Se apaga en Ajustes.
+
 **Atajos:** ⌃⌥R (reunión) y ⌃⌥Espacio (dictado largo) son los de fábrica; los cambias en ícono › **Ajustes…** (haz clic en el atajo y aprieta la combinación nueva). Ahí también se apaga el dictado corto con ⌃⌥.
 
 También sirve para **cualquier audio que ya tengas** (notas de voz, grabaciones viejas): menú › *Procesar un audio…*

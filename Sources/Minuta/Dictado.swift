@@ -50,6 +50,7 @@ final class Dictado {
         motor.prepare()
         do { try motor.start() } catch { entrada.removeTap(onBus: 0); throw ErrorDictado.noGraba }
         ServidorWhisper.compartido.preparar()   // carga el modelo mientras hablas
+        Volumen.bajar()                          // la música baja mientras dictas
         self.motor = motor
         self.toma = toma
         // Cuatro veces por segundo: ¿hay un silencio donde cortar un trozo? ¿ya conviene abrir Claude?
@@ -79,6 +80,7 @@ final class Dictado {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             motor.inputNode.removeTap(onBus: 0)
             motor.stop()
+            Volumen.devolver()
             toma.cerrar(alOrdenar: { DispatchQueue.main.async { alOrdenar?() } }) { resultado in
                 DispatchQueue.main.async { alTerminar(resultado) }
             }
@@ -86,6 +88,7 @@ final class Dictado {
     }
 
     private func detenerMotor() {
+        Volumen.devolver()
         revision?.invalidate()
         revision = nil
         motor?.inputNode.removeTap(onBus: 0)

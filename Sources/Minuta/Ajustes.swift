@@ -25,6 +25,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
     private let casillaMantener = NSButton(checkboxWithTitle: "Mantener ⌃⌥ apretadas", target: nil, action: nil)
     private let casillaOrdenar = NSButton(checkboxWithTitle: "Ordenar con Claude los largos", target: nil, action: nil)
     private let casillaLlamadas = NSButton(checkboxWithTitle: "Ofrecer grabar cuando empieza una", target: nil, action: nil)
+    private let casillaVolumen = NSButton(checkboxWithTitle: "Bajar la música mientras dicto", target: nil, action: nil)
     private var capturando: Accion?
     private var monitor: Any?
 
@@ -56,12 +57,15 @@ final class Ajustes: NSObject, NSWindowDelegate {
         casillaOrdenar.action = #selector(cambiarOrdenar)
         casillaLlamadas.target = self
         casillaLlamadas.action = #selector(cambiarLlamadas)
+        casillaVolumen.target = self
+        casillaVolumen.action = #selector(cambiarVolumen)
         let grilla = NSGridView(views: [
             [NSTextField(labelWithString: "Grabar reunión"), botonReunion],
             [NSTextField(labelWithString: "Dictado largo"), botonDictado],
             [NSTextField(labelWithString: "Dictado corto"), casillaMantener],
             [NSTextField(labelWithString: "Inteligencia"), casillaOrdenar],
             [NSTextField(labelWithString: "Llamadas"), casillaLlamadas],
+            [NSTextField(labelWithString: "Volumen"), casillaVolumen],
         ])
         grilla.rowSpacing = 10
         grilla.columnSpacing = 12
@@ -103,6 +107,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
         casillaMantener.state = mantener?.encendido ?? true ? .on : .off
         casillaOrdenar.state = Dictado.ordenarConIA ? .on : .off
         casillaLlamadas.state = llamadas?.encendido ?? true ? .on : .off
+        casillaVolumen.state = Volumen.encendido ? .on : .off
     }
 
     private func avisar(_ texto: String, error: Bool = false) {
@@ -114,6 +119,12 @@ final class Ajustes: NSObject, NSWindowDelegate {
         mantener?.encendido = casillaMantener.state == .on
         avisar(casillaMantener.state == .on ? "Mantén ⌃⌥ mientras hablas y suéltalas para que se escriba."
                                              : "Dictado corto apagado: dicta con \(Atajos.dictado.texto).")
+    }
+
+    @objc private func cambiarVolumen() {
+        Volumen.encendido = casillaVolumen.state == .on
+        avisar(casillaVolumen.state == .on ? "Al dictar, el volumen del Mac baja y vuelve como estaba al terminar."
+                                           : "El volumen no se toca al dictar.")
     }
 
     @objc private func cambiarLlamadas() {

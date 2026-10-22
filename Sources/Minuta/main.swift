@@ -44,6 +44,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         ServidorWhisper.compartido.limpiarRestos()
+        NSApp.mainMenu = menuPrincipal()
         registrarAtajos()
         ajustes.alSoltarAtajos = { [weak self] in self?.atajos = [] }
         ajustes.alRegistrarAtajos = { [weak self] in self?.registrarAtajos() ?? (false, false) }
@@ -118,17 +119,15 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// Si abres Minuta otra vez (Spotlight, Finder) mientras corre, muestra el menú donde está el mouse.
-    /// Sirve cuando el ícono queda escondido detrás de la muesca de la pantalla.
+    /// Si abres Minuta otra vez (Dock, Spotlight, Finder) mientras corre, abre su ventana, como otras apps de notas.
+    /// Ahí está todo lo del menú (grabar, dictados, reuniones), por si el ícono queda tras la muesca.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        guard let menu = item.menu else { return false }
-        menuNeedsUpdate(menu)
-        NSApp.activate(ignoringOtherApps: true)
-        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+        ventanaReuniones.mostrar()
         return false
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        Volumen.devolver()
         ServidorWhisper.compartido.apagar()
         guard grabandoDesde != nil else { return }
         let listo = DispatchSemaphore(value: 0)
@@ -163,6 +162,22 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // MARK: Menú
+
+    /// El menú de arriba a la izquierda cuando la ventana de Minuta está al frente.
+    private func menuPrincipal() -> NSMenu {
+        let principal = NSMenu()
+        let app = NSMenu(title: "Minuta")
+        app.addItem(withTitle: "Acerca de Minuta", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        app.addItem(.separator())
+        app.addItem(accion("Ajustes…", #selector(abrirAjustes), tecla: ","))
+        app.addItem(.separator())
+        app.addItem(withTitle: "Ocultar Minuta", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        app.addItem(accion("Salir de Minuta", #selector(salir), tecla: "q"))
+        let item = NSMenuItem()
+        item.submenu = app
+        principal.addItem(item)
+        return principal
+    }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
