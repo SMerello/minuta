@@ -105,7 +105,7 @@ final class Dictado {
         let bruto = try ServidorWhisper.compartido.transcribir(wav, segundos: segundos) ?? transcribirSinServidor(wav)
         let texto = bruto.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }.joined(separator: " ")
-        return esAlucinacion(texto) ? "" : texto
+        return esAlucinacion(texto) ? "" : Correcciones.aplicar(texto)
     }
 
     private static func escribirWAV(_ muestras: [Float], en url: URL) throws {

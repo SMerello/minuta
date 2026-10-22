@@ -313,6 +313,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Guarda el dictado en el historial y lo escribe donde está el cursor.
     private func entregar(_ texto: String, original: String? = nil) {
+        // Otra pasada por tu lista de correcciones: Claude, al ordenar, a veces vuelve a la palabra mal escrita.
+        let texto = Correcciones.aplicar(texto)
         Dictado.guardar(texto, original: original)
         if !Dictado.escribir(texto) {
             avisar("Texto copiado", "Pégalo con ⌘V. Para que se escriba solo, activa Minuta en Ajustes del Sistema › Privacidad y seguridad › Accesibilidad.")

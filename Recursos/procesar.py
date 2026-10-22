@@ -391,6 +391,36 @@ def en_vivo(carpeta, pistas, config):
     return [(q, segmentos[q]) for _, q in pistas if segmentos[q]], max(largos.values(), default=0.0), silencios
 
 
+# ---------- 2c. Correcciones ----------
+
+def leer_correcciones():
+    """Tu lista de ~/Library/Application Support/Minuta/correcciones.txt ("Bucines → Business").
+    Misma regla que en la app: palabras o frases completas, sin importar mayúsculas a la izquierda."""
+    ruta = SOPORTE / "correcciones.txt"
+    reglas = []
+    if not ruta.exists():
+        return reglas
+    for linea in ruta.read_text(encoding="utf-8").splitlines():
+        linea = linea.strip()
+        if not linea or linea.startswith("#"):
+            continue
+        for flecha in ("→", "->", "=>", "="):
+            if flecha in linea:
+                mal, _, bien = linea.partition(flecha)
+                mal, bien = mal.strip(), bien.strip()
+                if mal and bien:
+                    frase = r"\s+".join(re.escape(p) for p in mal.split())
+                    reglas.append((re.compile(rf"(?<!\w){frase}(?!\w)", re.IGNORECASE), bien))
+                break
+    return reglas
+
+
+def corregir(texto, reglas):
+    for expresion, bien in reglas:
+        texto = expresion.sub(lambda _: bien, texto)
+    return texto
+
+
 # ---------- 3. Juntar pistas ----------
 
 def quitar_eco(mic, llamada):
@@ -546,7 +576,7 @@ def main():
         por_quien = dict(transcritas)
         if config["nombre"] in por_quien and "Llamada" in por_quien:
             por_quien[config["nombre"]] = quitar_eco(por_quien[config["nombre"]], por_quien["Llamada"])
-        texto = juntar(list(por_quien.items()))
+        texto = corregir(juntar(list(por_quien.items())), leer_correcciones())
         if not texto.strip():
             raise RuntimeError("No se escuchó a nadie hablar en la grabación.")
 

@@ -26,6 +26,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
     private let casillaOrdenar = NSButton(checkboxWithTitle: "Ordenar con Claude los largos", target: nil, action: nil)
     private let casillaLlamadas = NSButton(checkboxWithTitle: "Ofrecer grabar cuando empieza una", target: nil, action: nil)
     private let casillaVolumen = NSButton(checkboxWithTitle: "Bajar la música mientras dicto", target: nil, action: nil)
+    private let botonCorrecciones = NSButton(title: "Editar mi lista…", target: nil, action: nil)
     private var capturando: Accion?
     private var monitor: Any?
 
@@ -59,6 +60,9 @@ final class Ajustes: NSObject, NSWindowDelegate {
         casillaLlamadas.action = #selector(cambiarLlamadas)
         casillaVolumen.target = self
         casillaVolumen.action = #selector(cambiarVolumen)
+        botonCorrecciones.bezelStyle = .rounded
+        botonCorrecciones.target = self
+        botonCorrecciones.action = #selector(editarCorrecciones)
         let grilla = NSGridView(views: [
             [NSTextField(labelWithString: "Grabar reunión"), botonReunion],
             [NSTextField(labelWithString: "Dictado largo"), botonDictado],
@@ -66,6 +70,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
             [NSTextField(labelWithString: "Inteligencia"), casillaOrdenar],
             [NSTextField(labelWithString: "Llamadas"), casillaLlamadas],
             [NSTextField(labelWithString: "Volumen"), casillaVolumen],
+            [NSTextField(labelWithString: "Correcciones"), botonCorrecciones],
         ])
         grilla.rowSpacing = 10
         grilla.columnSpacing = 12
@@ -119,6 +124,13 @@ final class Ajustes: NSObject, NSWindowDelegate {
         mantener?.encendido = casillaMantener.state == .on
         avisar(casillaMantener.state == .on ? "Mantén ⌃⌥ mientras hablas y suéltalas para que se escriba."
                                              : "Dictado corto apagado: dicta con \(Atajos.dictado.texto).")
+    }
+
+    /// Abre tu lista de correcciones ("Bucines → Business") en el editor de texto.
+    @objc private func editarCorrecciones() {
+        Correcciones.asegurarArchivo()
+        NSWorkspace.shared.open(Correcciones.archivo)
+        avisar("Una por línea: lo que Whisper escribe mal → cómo tiene que quedar. Guarda y listo.")
     }
 
     @objc private func cambiarVolumen() {

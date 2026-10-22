@@ -1,0 +1,6 @@
+# Correcciones de Minuta
+# Lo que Whisper escribe mal → cómo tiene que quedar. Una por línea, por ejemplo:
+#   Bucines → Business
+# Solo cambia palabras completas (o frases completas) y no importa la mayúscula a la izquierda.
+# También sirve escribir -> o = en vez de →. Las líneas que empiezan con # no cuentan.
+# Se aplica a los dictados y a las reuniones nuevas.

@@ -31,6 +31,8 @@ Graba tus reuniones desde la barra de arriba del Mac, las transcribe **en tu pro
 
 **Dock y volumen:** Minuta puede quedar fija en el Dock; al hacerle clic (o al abrirla de nuevo desde Spotlight) se abre su ventana, y mientras la ventana está abierta aparece en ⌘Tab. Al dictar, el volumen del Mac baja a un cuarto (música, videos) y vuelve como estaba al terminar; en reuniones no se toca. Se apaga en Ajustes.
 
+**Correcciones:** tu lista de palabras que Whisper escribe mal está en `~/Library/Application Support/Minuta/correcciones.txt` (ícono › Ajustes… › Correcciones › Editar mi lista…), una por línea: `Bucines → Business`. Se aplica a los dictados y a las reuniones nuevas, solo a palabras o frases completas y sin importar mayúsculas.
+
 **Atajos:** ⌃⌥R (reunión) y ⌃⌥Espacio (dictado largo) son los de fábrica; los cambias en ícono › **Ajustes…** (haz clic en el atajo y aprieta la combinación nueva). Ahí también se apaga el dictado corto con ⌃⌥.
 
 También sirve para **cualquier audio que ya tengas** (notas de voz, grabaciones viejas): menú › *Procesar un audio…*
