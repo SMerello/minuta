@@ -36,6 +36,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let ajustes = Ajustes()
     private let mantener = Mantener()
     private let espacio = EspacioTermina()
+    private let llamadas = Llamadas()
+    private let oferta = Oferta()
+    private var avisoMicrofono = false       // ya avisé en esta grabación que el micrófono no capta
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         ServidorWhisper.compartido.limpiarRestos()
@@ -55,6 +58,21 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         mantener.alInterrumpir = { [weak self] in self?.descartarDictado(sonido: false) }
         mantener.vigilar()
+        llamadas.alEmpezar = { [weak self] app in
+            guard let self, self.grabandoDesde == nil else { return }
+            self.oferta.mostrar("Empezó una llamada en \(app). ¿La grabo?", boton: "Grabar", durante: 25) { [weak self] in
+                guard let self, self.grabandoDesde == nil else { return }
+                self.grabar()
+            }
+        }
+        llamadas.alTerminar = { [weak self] in
+            guard let self, self.grabandoDesde != nil else { return }
+            self.oferta.mostrar("Parece que la llamada terminó.", boton: "Detener y resumir", durante: 60) { [weak self] in
+                self?.detener()
+            }
+        }
+        llamadas.vigilar()
+        ajustes.llamadas = llamadas
         dictado.alOrdenar = { [weak self] in
             self?.ordenandoDictado = true
             self?.refrescar()
@@ -68,6 +86,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         // Un solo reloj para el tiempo de grabación y de dictado (se ve en el menú y al pasar el mouse).
         reloj = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            self?.revisarMicrofono()
             guard let self, self.grabandoDesde != nil || self.dictado.activo else { return }
             self.refrescar()
         }
@@ -325,6 +344,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             do {
                 try await grabador.iniciar(en: carpeta)
                 grabandoDesde = Date()
+                avisoMicrofono = false
+                indicador.aviso = nil
+                oferta.ocultar()
                 refrescar()
             } catch {
                 try? FileManager.default.removeItem(at: carpeta)
@@ -343,6 +365,22 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             refrescar()
             procesar(["--carpeta", carpeta.path], clave: carpeta.path)
         }
+    }
+
+    /// A los 30 s de reunión, si tu micrófono no ha captado nada (como con los AirPods guardados), avisa
+    /// diciendo qué micrófono está usando el Mac. Si después capta voz, el aviso de la barra se quita.
+    private func revisarMicrofono() {
+        guard let desde = grabandoDesde, pausadoDesde == nil else { return }
+        let pico = grabador.picoMicrofono
+        if pico >= 0.1 {
+            indicador.aviso = nil
+            return
+        }
+        guard !avisoMicrofono, Date().timeIntervalSince(desde) >= 30 else { return }
+        avisoMicrofono = true
+        indicador.aviso = "Sin voz"
+        let cual = Microfono.nombre().map { "El Mac está usando «\($0)»." } ?? ""
+        avisar("No te estoy escuchando", "En 30 s tu micrófono no captó voz. \(cual) Cámbialo en Ajustes del Sistema › Sonido › Entrada.")
     }
 
     /// Pausa o sigue la reunión. En pausa no se graba nada y el reloj se detiene.

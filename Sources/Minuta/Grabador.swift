@@ -23,8 +23,15 @@ final class Grabador: NSObject, SCStreamOutput, SCStreamDelegate {
         defer { candado.unlock() }
         return Date().timeIntervalSince(ultimoNivel.cuando) < 0.4 ? ultimoNivel.valor : 0
     }
+    /// Lo más fuerte que ha captado tu micrófono en esta grabación: si sigue en casi 0, no te está escuchando.
+    var picoMicrofono: Float {
+        candado.lock()
+        defer { candado.unlock() }
+        return pico
+    }
     private let candado = NSLock()
     private var ultimoNivel: (valor: Float, cuando: Date) = (0, .distantPast)
+    private var pico: Float = 0
 
     /// Se llama si la grabación se corta sola (por ejemplo, si quitas el permiso).
     var alCortarse: ((Error) -> Void)?
@@ -33,6 +40,7 @@ final class Grabador: NSObject, SCStreamOutput, SCStreamDelegate {
         self.carpeta = carpeta
         inicio = nil
         pausas = []
+        candado.withLock { pico = 0 }
         pistas = [
             .microphone: Pista(url: carpeta.appendingPathComponent("microfono.caf")),
             .audio: Pista(url: carpeta.appendingPathComponent("llamada.caf")),
@@ -105,6 +113,7 @@ final class Grabador: NSObject, SCStreamOutput, SCStreamDelegate {
             let valor = nivelDeVoz(decibeles: Grabador.decibeles(pcm))
             candado.lock()
             ultimoNivel = (valor, Date())
+            pico = max(pico, valor)
             candado.unlock()
         }
         let enPausa = pausas.reduce(0.0) { suma, p in

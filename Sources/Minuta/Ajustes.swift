@@ -10,6 +10,8 @@ final class Ajustes: NSObject, NSWindowDelegate {
     var alRegistrarAtajos: () -> (reunion: Bool, dictado: Bool) = { (true, true) }
     /// El dictado corto (mantener ⌃⌥), para prenderlo o apagarlo desde aquí.
     var mantener: Mantener?
+    /// Para prender o apagar la oferta de grabar cuando empieza una llamada.
+    var llamadas: Llamadas?
 
     private enum Accion {
         case reunion, dictado
@@ -22,6 +24,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
     private let aviso = NSTextField(wrappingLabelWithString: "")
     private let casillaMantener = NSButton(checkboxWithTitle: "Mantener ⌃⌥ apretadas", target: nil, action: nil)
     private let casillaOrdenar = NSButton(checkboxWithTitle: "Ordenar con Claude los largos", target: nil, action: nil)
+    private let casillaLlamadas = NSButton(checkboxWithTitle: "Ofrecer grabar cuando empieza una", target: nil, action: nil)
     private var capturando: Accion?
     private var monitor: Any?
 
@@ -51,11 +54,14 @@ final class Ajustes: NSObject, NSWindowDelegate {
         casillaMantener.action = #selector(cambiarMantener)
         casillaOrdenar.target = self
         casillaOrdenar.action = #selector(cambiarOrdenar)
+        casillaLlamadas.target = self
+        casillaLlamadas.action = #selector(cambiarLlamadas)
         let grilla = NSGridView(views: [
             [NSTextField(labelWithString: "Grabar reunión"), botonReunion],
             [NSTextField(labelWithString: "Dictado largo"), botonDictado],
             [NSTextField(labelWithString: "Dictado corto"), casillaMantener],
             [NSTextField(labelWithString: "Inteligencia"), casillaOrdenar],
+            [NSTextField(labelWithString: "Llamadas"), casillaLlamadas],
         ])
         grilla.rowSpacing = 10
         grilla.columnSpacing = 12
@@ -96,6 +102,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
         botonDictado.title = capturando == .dictado ? "Aprieta la combinación…" : Atajos.dictado.texto
         casillaMantener.state = mantener?.encendido ?? true ? .on : .off
         casillaOrdenar.state = Dictado.ordenarConIA ? .on : .off
+        casillaLlamadas.state = llamadas?.encendido ?? true ? .on : .off
     }
 
     private func avisar(_ texto: String, error: Bool = false) {
@@ -107,6 +114,13 @@ final class Ajustes: NSObject, NSWindowDelegate {
         mantener?.encendido = casillaMantener.state == .on
         avisar(casillaMantener.state == .on ? "Mantén ⌃⌥ mientras hablas y suéltalas para que se escriba."
                                              : "Dictado corto apagado: dicta con \(Atajos.dictado.texto).")
+    }
+
+    @objc private func cambiarLlamadas() {
+        llamadas?.encendido = casillaLlamadas.state == .on
+        avisar(casillaLlamadas.state == .on
+               ? "Cuando Zoom, Teams, Meet o WhatsApp abran el micrófono, te pregunto si grabo."
+               : "No te voy a preguntar al empezar una llamada.")
     }
 
     @objc private func cambiarOrdenar() {

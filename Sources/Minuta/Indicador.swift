@@ -28,6 +28,10 @@ final class Indicador {
     var alDescartar: ((Modo) -> Void)?
     /// Volumen del micrófono (0 a 1) para el modo que se ve; se pregunta ~20 veces por segundo.
     var nivel: ((Modo) -> Float)?
+    /// Reemplaza "Grabando" por un aviso en amarillo (por ejemplo, "Sin voz" si el micrófono no capta).
+    var aviso: String? {
+        didSet { if aviso != oldValue { actualizar() } }
+    }
 
     private static let alto: CGFloat = 36
     private static let lado: CGFloat = 26   // cada botón es un círculo de este tamaño
@@ -83,7 +87,9 @@ final class Indicador {
         let tiempo = s >= 3600
             ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
             : String(format: "%02d:%02d", s / 60, s % 60)
-        etiqueta.stringValue = "\(pausadoDesde != nil ? "En pausa" : modo.texto) · \(tiempo)"
+        let estado = pausadoDesde != nil ? "En pausa" : (modo == .reunion ? aviso : nil) ?? modo.texto
+        etiqueta.stringValue = "\(estado) · \(tiempo)"
+        etiqueta.textColor = aviso != nil && modo == .reunion && pausadoDesde == nil ? .systemYellow : .white
     }
 
     func ocultar() {
