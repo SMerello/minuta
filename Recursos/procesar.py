@@ -158,28 +158,60 @@ def tramo_de(t, mapa):
     return len(mapa) - 1
 
 
+ABREN = "¿¡«\"'(["   # puntuación que va pegada a la palabra que viene después
+
+
+def palabras(fichas):
+    """Junta las fichas de Whisper (pedazos de palabra: "Perfect" + "o", " ¿" + "Y") en palabras
+    completas, para que una palabra nunca quede partida entre dos tramos.
+    Devuelve [(desde, hasta, momento, texto)]: momento es el instante que decide el tramo."""
+    juntas = []
+    for desde, hasta, dtw, texto in fichas:
+        letras = bool(re.search(r"\w", texto))
+        # Abre palabra la ficha que empieza con espacio, salvo que sea puntuación de cierre (" ,")
+        # o que la anterior sea solo un "¿" esperando su palabra.
+        nueva = (not juntas or texto[:1].isspace() and (letras or texto.strip()[:1] in ABREN)
+                 and re.search(r"\w", juntas[-1][3]))
+        if nueva:
+            juntas.append([desde, hasta, [], ""])
+        p = juntas[-1]
+        p[1] = max(p[1], hasta)
+        p[3] += texto
+        if letras:   # la puntuación no vota: Whisper le pone horas cualquiera, a veces dentro de la pausa
+            p[2].append(dtw if dtw is not None else (desde + hasta) / 2)
+    return [(a, b, votos[0] if votos else (a + b) / 2, t) for a, b, votos, t in juntas]
+
+
 def a_hora_real(segmentos, mapa):
-    """Pasa los segmentos de Whisper a la hora real. Si un segmento cruza de un tramo a otro
-    (dos frases que en la reunión estaban separadas), lo corta usando la hora de cada palabra."""
+    """Pasa los segmentos de Whisper a la hora real. Cada palabra va al tramo con voz donde se dijo,
+    y un segmento que cruza de un tramo a otro (dos intervenciones que en la reunión estaban
+    separadas) se corta justo en el borde del tramo."""
     def real(t, i):
         inicio, fin, original = mapa[i]
         return original + min(max(0.0, t - inicio), fin - inicio)
 
     salida = []
     for desde, hasta, texto, fichas in segmentos:
-        grupos = []
-        for f_desde, f_hasta, f_texto in fichas:
-            i = tramo_de((f_desde + f_hasta) / 2, mapa)
+        grupos, anterior = [], 0
+        for p_desde, p_hasta, momento, p_texto in palabras(fichas):
+            # Las palabras van en orden: un tramo nunca puede ser anterior al de la palabra previa.
+            i = anterior = max(anterior, tramo_de(momento, mapa))
+            # La hora de Whisper suele caer en la pausa de antes; la de DTW, un poco después: uso ambas.
+            a, b = min(p_desde, momento), max(p_hasta, momento)
             if grupos and grupos[-1][0] == i:
-                grupos[-1][2] = f_hasta
-                grupos[-1][3] += f_texto
+                grupos[-1][2] = max(grupos[-1][2], b)
+                grupos[-1][3] += p_texto
             else:
-                grupos.append([i, f_desde, f_hasta, f_texto])
-        if len(grupos) <= 1:
-            i = tramo_de(desde, mapa)
-            salida.append((real(desde, i), real(hasta, tramo_de(hasta, mapa)), texto))
-        else:
-            salida += [(real(a, i), real(b, i), t.strip()) for i, a, b, t in grupos if t.strip()]
+                grupos.append([i, a, b, p_texto])
+        if not grupos:
+            i = tramo_de((desde + hasta) / 2, mapa)
+            grupos = [[i, desde, hasta, texto]]
+        elif len(grupos) == 1:
+            grupos[0][3] = texto   # el texto del segmento entero está mejor armado que la suma de fichas
+        for i, a, b, t in grupos:
+            if t.strip():
+                inicio = real(a, i)
+                salida.append((inicio, max(inicio, real(b, i)), t.strip()))
     return salida
 
 
@@ -191,6 +223,19 @@ def fraccion_con_voz(inicio, fin, silencios):
 
 # ---------- 2. Whisper ----------
 
+PRESETS_DTW = {"tiny", "tiny.en", "base", "base.en", "small", "small.en", "medium", "medium.en",
+               "large.v1", "large.v2", "large.v3", "large.v3.turbo"}
+
+
+def preset_dtw(modelo):
+    """Nombre que whisper usa para el DTW de este modelo (ggml-large-v3-turbo.bin → large.v3.turbo),
+    o None si no lo reconozco (entonces se usa la hora estimada de whisper)."""
+    nombre = Path(modelo).stem
+    nombre = re.sub(r"-q\d.*$", "", nombre[5:] if nombre.startswith("ggml-") else nombre)
+    nombre = nombre.replace("-", ".")
+    return nombre if nombre in PRESETS_DTW else None
+
+
 def transcribir(wav, config, etiqueta):
     base = wav.with_suffix("")          # whisper agrega ".json" a este nombre
     salida_json = Path(f"{base}.json")
@@ -198,6 +243,11 @@ def transcribir(wav, config, etiqueta):
                "-l", config["idioma"], "-oj", "-ojf", "-of", str(base), "-pp", "-np"]
     if config.get("vocabulario"):
         comando += ["--prompt", config["vocabulario"]]
+    if preset := preset_dtw(config["modelo"]):
+        # Hora de cada palabra alineada con el audio (DTW). Sin esto whisper la estima repartiendo
+        # el segmento, y la primera palabra de cada intervención cae en la pausa de antes y se va
+        # con la intervención anterior. DTW no funciona con flash attention: por eso -nfa.
+        comando += ["-dtw", preset, "-nfa"]
     proceso = subprocess.Popen(comando, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     ultimo = -1
     cola = []
@@ -217,7 +267,9 @@ def transcribir(wav, config, etiqueta):
         # Las frases inventadas se sacan aquí, antes de cortar el segmento en pedazos (después ya no se reconocen).
         if not s.get("text", "").strip() or es_alucinacion(s["text"]):
             continue
-        fichas = [(t["offsets"]["from"] / 1000, t["offsets"]["to"] / 1000, t["text"])
+        # t_dtw viene en centésimas de segundo (−1 si whisper no lo calculó).
+        fichas = [(t["offsets"]["from"] / 1000, t["offsets"]["to"] / 1000,
+                   t["t_dtw"] / 100 if t.get("t_dtw", -1) >= 0 else None, t["text"])
                   for t in s.get("tokens", []) if not t.get("text", "").startswith("[_")]
         segmentos.append((s["offsets"]["from"] / 1000, s["offsets"]["to"] / 1000, s["text"].strip(), fichas))
     return segmentos
@@ -336,8 +388,12 @@ def main():
     grupo = args.add_mutually_exclusive_group(required=True)
     grupo.add_argument("--carpeta", type=Path)
     grupo.add_argument("--archivo", type=Path)
+    args.add_argument("--sin-resumen", action="store_true",
+                      help="solo transcribe (para probar sin llamar a Claude)")
     args = args.parse_args()
     config = cargar_config()
+    if args.sin_resumen:
+        config["resumen_con"] = "ninguno"
 
     if args.carpeta:
         carpeta = args.carpeta.expanduser()
