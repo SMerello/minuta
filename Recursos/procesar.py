@@ -69,7 +69,12 @@ def cargar_config():
     config = dict(CONFIG_INICIAL)
     ruta = SOPORTE / "config.json"
     if ruta.exists():
-        config.update(json.loads(ruta.read_text(encoding="utf-8")))
+        texto = ruta.read_text(encoding="utf-8")
+        try:
+            config.update(json.loads(texto))
+        except json.JSONDecodeError:
+            # TextEdit cambia las comillas rectas por curvas al escribir: si así no se lee, se enderezan.
+            config.update(json.loads(re.sub("[“”„]", '"', texto)))
     config["carpeta"] = Path(os.path.expanduser(config["carpeta"]))
     config["modelo"] = Path(os.path.expanduser(config["modelo"]))
     return config

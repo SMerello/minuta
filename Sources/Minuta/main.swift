@@ -619,9 +619,12 @@ enum Config {
 
     private static let json: [String: Any] = {
         let url = soporte.appendingPathComponent("config.json")
-        guard let datos = try? Data(contentsOf: url),
-              let obj = try? JSONSerialization.jsonObject(with: datos) as? [String: Any] else { return [:] }
-        return obj
+        guard let texto = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
+        // TextEdit cambia las comillas rectas por curvas al escribir: si así no se lee, se enderezan.
+        for intento in [texto, texto.replacingOccurrences(of: "[“”„]", with: "\"", options: .regularExpression)] {
+            if let obj = try? JSONSerialization.jsonObject(with: Data(intento.utf8)) as? [String: Any] { return obj }
+        }
+        return [:]
     }()
 
     static var carpetaReuniones: URL {
