@@ -3,7 +3,7 @@
 Graba tus reuniones desde la barra de arriba del Mac, las transcribe **en tu propio computador** con Whisper y te deja un resumen con Claude. Sin bots que se meten a la llamada, sin video, sin suscripciones.
 
 ```
-● ⌃⌥R Grabar reunión  →  ⌃⌥R Detener y resumir  →  ~/Reuniones/2026-10-21-1530-acme/
+● ⌃⌥R Grabar reunión  →  ⌃⌥R Detener y resumir  →  ~/Reuniones/2026-10-21-1530-propuesta-acme/
                                               ├── resumen.md        (TL;DR, puntos clave, decisiones, tareas)
                                               ├── minuta.md         (solo si fue reunión comercial)
                                               ├── transcripcion.md

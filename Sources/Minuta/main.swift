@@ -639,7 +639,9 @@ enum Config {
 
     static var idioma: String { (json["idioma"] as? String) ?? "es" }
     /// Para el saludo de la ventana ("Buenas tardes, Santiago.").
-    static var nombre: String { (json["nombre"] as? String) ?? "Santiago" }
+    static var nombre: String {
+        (json["nombre"] as? String) ?? NSFullUserName().split(separator: " ").first.map(String.init) ?? ""
+    }
     static var vocabulario: String { (json["vocabulario"] as? String) ?? "" }
     /// Modelo de Claude para ordenar los dictados largos ("sonnet" ordena mejor que "haiku" y tarda casi lo mismo).
     static var modeloDictado: String { (json["modelo_dictado"] as? String) ?? "sonnet" }
