@@ -754,17 +754,39 @@ enum Pagina {
         let saludo = (5..<12).contains(h) ? "Buenos días" : (12..<20).contains(h) ? "Buenas tardes" : "Buenas noches"
         let nombre = nombre.trimmingCharacters(in: .whitespaces)
         let palabras = dictados.reduce(0) { $0 + $1.palabras }
-        let horas = Double(reuniones.reduce(0) { $0 + ($1.minutos ?? 0) }) / 60
+        let ahorro = minutosAhorrados(palabrasDictadas: palabras, reuniones: reuniones)
+        let explicacion = "Escribir a mano va a unas \(Int(escritasPorMinuto)) palabras por minuto y hablar a unas " +
+            "\(Int(habladasPorMinuto)). Cuenta lo que te habrías demorado en escribir tus dictados (menos lo que " +
+            "tardaste en decirlos) y las notas y minutas de tus reuniones."
         let cifras = [
-            (numero(dictados.count), "Dictados"),
-            (numero(palabras), "Palabras dictadas"),
-            (numero(reuniones.count), "Reuniones"),
-            (formatoHoras.string(from: NSNumber(value: horas)) ?? "0", "Horas de reunión"),
+            (duracionLarga(ahorro), "Tiempo ahorrado", explicacion),
+            (numero(palabras), "Palabras dictadas", ""),
+            (numero(dictados.count), "Dictados", ""),
+            (numero(reuniones.count), "Reuniones", ""),
         ]
         return """
         <div class="cabeza"><div class="saludo">\(Markdown.escapar(saludo + (nombre.isEmpty ? "" : ", " + nombre))).</div>\
-        <div class="cifras">\(cifras.map { #"<div class="cifra"><div class="numero">\#($0.0)</div><div class="rotulo">\#($0.1)</div></div>"# }.joined())</div></div>
+        <div class="cifras">\(cifras.map { #"<div class="cifra" title="\#(Markdown.escapar($0.2))"><div class="numero">\#($0.0)</div><div class="rotulo">\#($0.1)</div></div>"# }.joined())</div></div>
         """
+    }
+
+    /// Promedios conocidos: una persona escribe a mano (teclado) unas 40 palabras por minuto y habla unas 150.
+    static let escritasPorMinuto = 40.0
+    static let habladasPorMinuto = 150.0
+
+    /// Tiempo ahorrado, como en otras apps de notas. Dictados: escribirlos menos decirlos. Reuniones: escribir a mano
+    /// las notas y la minuta que armó Claude (la reunión igual había que tenerla).
+    static func minutosAhorrados(palabrasDictadas: Int, reuniones: [Reunion]) -> Double {
+        let cuenta = { (texto: String?) in texto?.split(whereSeparator: \.isWhitespace).count ?? 0 }
+        let notas = reuniones.reduce(0) { $0 + cuenta($1.resumen) + cuenta($1.minuta) }
+        return Double(palabrasDictadas) * (1 / escritasPorMinuto - 1 / habladasPorMinuto) + Double(notas) / escritasPorMinuto
+    }
+
+    /// "<1 min", "45 min", "3 h 05 min", "24 h 13 min".
+    static func duracionLarga(_ minutos: Double) -> String {
+        let total = Int(minutos.rounded())
+        if total < 1 { return "<1 min" }
+        return total < 60 ? "\(total) min" : String(format: "%d h %02d min", total / 60, total % 60)
     }
 
     static func filtros(_ elegido: VentanaReuniones.Filtro) -> String {
@@ -923,14 +945,6 @@ enum Pagina {
         return f
     }()
     /// "0,4", "12,5": horas con un decimal.
-    private static let formatoHoras: NumberFormatter = {
-        let f = NumberFormatter()
-        f.locale = Locale(identifier: "es_CL")
-        f.numberStyle = .decimal
-        f.minimumFractionDigits = 1
-        f.maximumFractionDigits = 1
-        return f
-    }()
 
     // MARK: Estilo
 
