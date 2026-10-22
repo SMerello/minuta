@@ -158,12 +158,24 @@ final class Grabador: NSObject, SCStreamOutput, SCStreamDelegate {
 /// Un archivo de audio (AAC dentro de CAF, que aguanta mejor un corte a mitad de grabación).
 /// Si al audio le faltan pedazos (por ejemplo, el Mac no manda nada mientras hay silencio),
 /// rellena con silencio para que las dos pistas queden alineadas en el tiempo.
+/// Además deja una copia liviana (`.pcm`: 16 kHz, mono, 16 bits, sin encabezado) que se puede leer mientras
+/// crece: procesar.py la va transcribiendo de a trozos durante la reunión. El AAC no se puede leer a medias.
 private final class Pista {
     let url: URL
     private var archivo: AVAudioFile?
     private var cuadrosEscritos: AVAudioFramePosition = 0
+    private var liviana: FileHandle?
+    private var bytesLivianos = 0
+    private var convertidor: AVAudioConverter?
+    private static let formatoLiviano = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000,
+                                                      channels: 1, interleaved: true)!
 
-    init(url: URL) { self.url = url }
+    init(url: URL) {
+        self.url = url
+        let copia = url.deletingPathExtension().appendingPathExtension("pcm")
+        FileManager.default.createFile(atPath: copia.path, contents: nil)
+        liviana = try? FileHandle(forWritingTo: copia)
+    }
 
     func escribir(_ pcm: AVAudioPCMBuffer, segundosDesdeInicio: Double) {
         let formato = pcm.format
@@ -190,6 +202,36 @@ private final class Pista {
         } catch {
             NSLog("Minuta: no se pudo escribir audio en \(url.lastPathComponent): \(error)")
         }
+        escribirLiviana(pcm, segundosDesdeInicio: segundosDesdeInicio)
+    }
+
+    /// La copia liviana lleva su propia cuenta de tiempo, así queda alineada con la reunión igual que el AAC.
+    private func escribirLiviana(_ pcm: AVAudioPCMBuffer, segundosDesdeInicio: Double) {
+        guard let liviana else { return }
+        let hueco = segundosDesdeInicio - Double(bytesLivianos) / 32_000
+        if hueco > 0.05 {
+            let ceros = Data(count: Int(hueco * 16_000) * 2)
+            liviana.write(ceros)
+            bytesLivianos += ceros.count
+        }
+        if convertidor == nil {
+            convertidor = AVAudioConverter(from: pcm.format, to: Self.formatoLiviano)
+            convertidor?.downmix = true   // estéreo → mono
+        }
+        let capacidad = AVAudioFrameCount(Double(pcm.frameLength) * 16_000 / pcm.format.sampleRate) + 64
+        guard let convertidor, let salida = AVAudioPCMBuffer(pcmFormat: Self.formatoLiviano, frameCapacity: capacidad)
+        else { return }
+        var entregado = false
+        convertidor.convert(to: salida, error: nil) { _, estado in
+            if entregado { estado.pointee = .noDataNow; return nil }
+            entregado = true
+            estado.pointee = .haveData
+            return pcm
+        }
+        guard salida.frameLength > 0, let datos = salida.int16ChannelData?[0] else { return }
+        let bytes = Data(bytes: datos, count: Int(salida.frameLength) * 2)
+        liviana.write(bytes)
+        bytesLivianos += bytes.count
     }
 
     private func escribirSilencio(_ total: AVAudioFrameCount, formato: AVAudioFormat, en archivo: AVAudioFile) {
@@ -209,6 +251,8 @@ private final class Pista {
     func cerrar() {
         archivo?.close()
         archivo = nil
+        try? liviana?.close()
+        liviana = nil
     }
 }
 

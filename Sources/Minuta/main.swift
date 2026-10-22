@@ -26,6 +26,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var pausadoDesde: Date?
     private var reloj: Timer?
     private var enProceso: [String: String] = [:]   // carpeta → etapa actual
+    private var enVivo: [String: Process] = [:]      // carpeta → procesar.py transcribiendo mientras se graba
     private var ultimoResumen: URL?
     private var atajos: [Atajo] = []
     private let dictado = Dictado()
@@ -352,6 +353,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             do {
                 try await grabador.iniciar(en: carpeta)
                 grabandoDesde = Date()
+                // Transcribe mientras hablan: al detener solo falta el último trozo y el resumen.
+                enVivo[carpeta.path] = procesar(["--carpeta", carpeta.path, "--en-vivo"], clave: carpeta.path)
                 // De qué app fue (la ventana de reuniones lo muestra: "13:51 · Google Meet").
                 if let app = llamadas.appActual,
                    let datos = try? JSONSerialization.data(withJSONObject: ["app": app]) {
@@ -376,7 +379,12 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             grabandoDesde = nil
             pausadoDesde = nil
             refrescar()
-            procesar(["--carpeta", carpeta.path], clave: carpeta.path)
+            // El que transcribe en vivo termina el último trozo y resume; si no está, se procesa todo ahora.
+            if let vivo = enVivo[carpeta.path], vivo.isRunning {
+                FileManager.default.createFile(atPath: carpeta.appendingPathComponent(".detener").path, contents: nil)
+            } else {
+                procesar(["--carpeta", carpeta.path], clave: carpeta.path)
+            }
         }
     }
 
@@ -427,6 +435,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             grabandoDesde = nil
             pausadoDesde = nil
             refrescar()
+            enVivo[carpeta.path]?.terminate()
             try? FileManager.default.trashItem(at: carpeta, resultingItemURL: nil)
         }
     }
@@ -450,10 +459,11 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// Corre `procesar.py`, que va avisando por pantalla "ETAPA: ..." y al final "LISTO: <resumen.md>".
-    private func procesar(_ argumentos: [String], clave: String) {
+    @discardableResult
+    private func procesar(_ argumentos: [String], clave: String) -> Process? {
         guard let script = Bundle.main.url(forResource: "procesar", withExtension: "py") else {
             avisar("Falta procesar.py", "La app está incompleta: vuelve a instalarla con scripts/instalar.sh.")
-            return
+            return nil
         }
         enProceso[clave] = "empezando…"
         refrescar()
@@ -503,7 +513,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.enProceso[clave] = nil
+                self.enVivo[clave] = nil
                 self.refrescar()
+                // Descartaste la reunión (la carpeta está en la Papelera): no hay nada que avisar.
+                if resumen == nil && !FileManager.default.fileExists(atPath: clave) { return }
                 if let resumen {
                     self.ultimoResumen = resumen
                     self.avisar(p.terminationStatus == 0 ? "Resumen listo" : "Transcripción lista (el resumen falló)",
@@ -515,10 +528,12 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         do {
             try proceso.run()
+            return proceso
         } catch {
             enProceso[clave] = nil
             refrescar()
             avisar("No pude procesar la reunión", error.localizedDescription)
+            return nil
         }
     }
 

@@ -4,6 +4,11 @@
 Uso:
   procesar.py --carpeta ~/Reuniones/2026-10-21-1530   # carpeta con microfono.caf y/o llamada.caf
   procesar.py --archivo ~/Downloads/nota-de-voz.m4a   # cualquier audio o video
+  procesar.py --carpeta ~/Reuniones/... --en-vivo     # mientras se graba: transcribe a medida que se habla
+
+En vivo, la app lo lanza al empezar a grabar y crea el archivo ".detener" en la carpeta al terminar:
+mientras tanto va transcribiendo de a trozos las copias livianas del audio (microfono.pcm y llamada.pcm,
+16 kHz mono que crecen mientras se graba). Así, al detener, solo falta el último trozo y el resumen.
 
 Pasos: (1) convierte cada pista a WAV 16 kHz y detecta los silencios con ffmpeg,
 (2) transcribe con whisper.cpp en el Mac, (3) junta las pistas por tiempo marcando quién habló,
@@ -22,6 +27,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import unicodedata
 import urllib.request
 import wave
@@ -294,6 +300,97 @@ def limpiar(segmentos, silencios):
     return limpios
 
 
+# ---------- 2b. En vivo ----------
+
+TASA_PCM = 16000 * 2        # bytes por segundo de las copias livianas (16 kHz, mono, 16 bits)
+TROZO_MINIMO = 20           # segundos nuevos antes de transcribir un trozo (se corta en el último silencio)
+TROZO_MAXIMO = 150          # si nadie hace una pausa en tanto rato, se corta igual
+SIN_AUDIO_NUEVO = 120       # si el audio deja de crecer este rato sin ".detener", la app se cayó: termino igual
+
+
+def segundos_pcm(ruta):
+    return ruta.stat().st_size / TASA_PCM if ruta.exists() else 0.0
+
+
+def recorte_wav(pcm, desde, hasta, destino):
+    """Copia [desde, hasta) de la copia liviana a un WAV común."""
+    with open(pcm, "rb") as f:
+        f.seek(int(desde * 16000) * 2)
+        datos = f.read(max(0, int(hasta * 16000) - int(desde * 16000)) * 2)
+    with wave.open(str(destino), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(datos)
+
+
+def transcribir_trozo(pcm, desde, hasta, config, etiqueta, carpeta):
+    """Transcribe un trozo de la reunión. Devuelve (segmentos, silencios) con la hora real de la reunión."""
+    crudo, wav, compacto = (carpeta / f"{pcm.stem}.trozo{x}.wav" for x in ("", ".16k", ".voz"))
+    try:
+        recorte_wav(pcm, desde, hasta, crudo)
+        volumen, silencios, segundos = preparar_pista(crudo, wav)
+        mapa = compactar(wav, silencios, segundos, compacto) if volumen >= -50 else None
+        segmentos = limpiar(a_hora_real(transcribir(compacto, config, etiqueta), mapa), silencios) if mapa else []
+    finally:
+        for archivo in (crudo, wav, compacto):
+            archivo.unlink(missing_ok=True)
+    corridos = [(a + desde, b + desde, t) for a, b, t in segmentos]
+    return corridos, [(a + desde, min(b + desde, hasta)) for a, b in silencios]
+
+
+def donde_cortar(pcm, desde, hasta, carpeta):
+    """El medio del último silencio entre lo pendiente, para no partir una frase; None si conviene esperar."""
+    if hasta - desde < TROZO_MINIMO:
+        return None
+    muestra, wav = carpeta / f"{pcm.stem}.corte.wav", carpeta / f"{pcm.stem}.corte.16k.wav"
+    try:
+        recorte_wav(pcm, desde, hasta, muestra)
+        _, silencios, _ = preparar_pista(muestra, wav)
+    finally:
+        muestra.unlink(missing_ok=True)
+        wav.unlink(missing_ok=True)
+    cortes = [desde + (a + min(b, hasta - desde)) / 2 for a, b in silencios if a > 10]
+    if cortes:
+        return cortes[-1]
+    return hasta if hasta - desde >= TROZO_MAXIMO else None
+
+
+def en_vivo(carpeta, pistas, config):
+    """Transcribe mientras se graba. pistas: [(ruta .pcm, quien)].
+    Termina cuando aparece ".detener" (o si el audio deja de crecer mucho rato) con el último trozo.
+    Devuelve ([(quien, segmentos)], duración, {quien: silencios})."""
+    hecho = {quien: 0.0 for _, quien in pistas}
+    segmentos = {quien: [] for _, quien in pistas}
+    silencios = {quien: [] for _, quien in pistas}
+    ultimo_largo, ultimo_cambio = -1.0, time.time()
+    decir("ETAPA", "transcribiendo en vivo")
+    while True:
+        if not carpeta.exists():          # la descartaste: no queda nada que hacer
+            sys.exit(0)
+        detener = (carpeta / ".detener").exists()
+        largos = {quien: segundos_pcm(pcm) for pcm, quien in pistas}
+        if sum(largos.values()) != ultimo_largo:
+            ultimo_largo, ultimo_cambio = sum(largos.values()), time.time()
+        elif time.time() - ultimo_cambio > SIN_AUDIO_NUEVO:
+            detener = True
+        for pcm, quien in pistas:
+            etiqueta = "tu micrófono" if pcm.name.startswith("micro") else "la llamada"
+            hasta = largos[quien] if detener else donde_cortar(pcm, hecho[quien], largos[quien], carpeta)
+            if hasta is None or hasta - hecho[quien] < 0.3:
+                continue
+            nuevos, sil = transcribir_trozo(pcm, hecho[quien], hasta, config, etiqueta, carpeta)
+            segmentos[quien] += nuevos
+            silencios[quien] += sil
+            hecho[quien] = hasta
+            if not detener:
+                decir("ETAPA", f"transcribiendo en vivo · {int(min(hecho.values()) // 60)} min listos")
+        if detener:
+            break
+        time.sleep(3)
+    return [(q, segmentos[q]) for _, q in pistas if segmentos[q]], max(largos.values(), default=0.0), silencios
+
+
 # ---------- 3. Juntar pistas ----------
 
 def quitar_eco(mic, llamada):
@@ -388,6 +485,8 @@ def main():
     grupo = args.add_mutually_exclusive_group(required=True)
     grupo.add_argument("--carpeta", type=Path)
     grupo.add_argument("--archivo", type=Path)
+    args.add_argument("--en-vivo", action="store_true",
+                      help="con --carpeta: transcribe mientras se graba, hasta que aparezca .detener")
     args.add_argument("--sin-resumen", action="store_true",
                       help="solo transcribe (para probar sin llamar a Claude)")
     args = args.parse_args()
@@ -409,13 +508,25 @@ def main():
 
     _log = open(carpeta / "proceso.log", "a", encoding="utf-8")
     try:
-        if not pistas:
+        if not pistas and not args.en_vivo:
             raise RuntimeError("No hay audio para procesar.")
         if not config["modelo"].exists():
             raise RuntimeError(f"Falta el modelo de Whisper en {config['modelo']}")
 
         transcritas, duracion = [], 0.0
-        for ruta, quien in pistas:
+        vivas = [(carpeta / f"{ruta.stem}.pcm", quien) for ruta, quien in pistas] if args.carpeta else []
+        if args.en_vivo:
+            # Espera a que la grabación cree sus copias livianas (o termine sin ellas: grabador antiguo).
+            while not any(pcm.exists() for pcm, _ in vivas) and not (carpeta / ".detener").exists():
+                time.sleep(1)
+                vivas = [(carpeta / f"{n}.pcm", q) for n, q in (("microfono", config["nombre"]), ("llamada", "Llamada"))]
+            vivas = [(pcm, quien) for pcm, quien in vivas if pcm.exists()]
+            if vivas:
+                transcritas, duracion, _ = en_vivo(carpeta, vivas, config)
+                decir("ETAPA", "terminando la transcripción")
+            pistas = [(carpeta / f"{n}.caf", q) for n, q in (("microfono", config["nombre"]), ("llamada", "Llamada"))]
+            pistas = [(ruta, quien) for ruta, quien in pistas if ruta.exists() and ruta.stat().st_size > 0]
+        for ruta, quien in ([] if args.en_vivo and vivas else pistas):
             etiqueta = "audio" if quien == "Audio" else ("tu micrófono" if ruta.name.startswith("micro") else "la llamada")
             decir("ETAPA", f"preparando {etiqueta}")
             wav = carpeta / f"{ruta.stem}.16k.wav"
@@ -447,6 +558,9 @@ def main():
         encabezado = (f"Transcripción · {fecha:%Y-%m-%d %H:%M} · {minutos} min\n"
                       f"Origen: {origen}\nPistas: {hablantes}\n\n")
         (carpeta / "transcripcion.md").write_text(encabezado + texto + "\n", encoding="utf-8")
+        # Las copias livianas ya no sirven: el audio bueno queda en los .caf.
+        for sobra in (carpeta / "microfono.pcm", carpeta / "llamada.pcm", carpeta / ".detener"):
+            sobra.unlink(missing_ok=True)
 
         resumen_md = carpeta / "resumen.md"
         if config["resumen_con"] == "ninguno":
