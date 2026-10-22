@@ -1,12 +1,14 @@
 import AppKit
 import WebKit
 
-/// Ventana "Minuta", hecha con barra lateral y tarjetas. A la izquierda dos botones, Inicio y Reuniones,
-/// y abajo un recuadro con los atajos; a la derecha la página elegida:
+/// Ventana "Minuta", hecha con barra lateral y tarjetas. A la izquierda tres botones, Inicio, Reuniones y
+/// Cómo se usa, y abajo un recuadro con los atajos; a la derecha la página elegida:
 /// - Inicio: el saludo, las cifras y TODOS los dictados y reuniones juntos por día (máximo 3 líneas cada uno).
 ///   Clic en un dictado lo copia; clic en una reunión la abre.
 /// - Reuniones: la lista con buscador y el botón para grabar. Clic en una reunión: sus pestañas Notas, Minuta
 ///   y Transcripción, con los botones Copiar correo, Copiar notas y Abrir carpeta.
+/// - Cómo se usa: los permisos (con botón para activar los que faltan), cómo dictar y grabar, y botones para
+///   abrir cada cosa que se puede cambiar a mano (está en ComoSeUsa.swift).
 /// Todo se dibuja en HTML dentro de un solo WKWebView (así se ve igual de cuidado en claro y oscuro) y los clics
 /// llegan acá por `window.webkit.messageHandlers.minuta`. Vuelve a leer las carpetas al abrirse, al volver al
 /// frente y cada 5 s mientras se ve: lo que se termina de procesar aparece solo, y si nada cambió no se toca
@@ -14,6 +16,7 @@ import WebKit
 final class VentanaReuniones: NSObject, NSWindowDelegate, WKNavigationDelegate {
     enum Seccion: String {
         case inicio, reuniones
+        case comoSeUsa = "ayuda"
     }
 
     /// Las pestañas de Inicio: todo junto, solo dictados o solo reuniones.
@@ -35,6 +38,8 @@ final class VentanaReuniones: NSObject, NSWindowDelegate, WKNavigationDelegate {
     /// Botón "Grabar reunión" / "Detener y resumir" de la página Reuniones (los conecta main.swift).
     var alGrabar: (() -> Void)?
     var alDetener: (() -> Void)?
+    /// Botón "Ajustes y atajos…" de Cómo se usa (abre la ventana de Ajustes).
+    var alAbrirAjustes: (() -> Void)?
 
     private(set) var ventana: NSWindow?
     let web: WKWebView = {
@@ -76,7 +81,7 @@ final class VentanaReuniones: NSObject, NSWindowDelegate, WKNavigationDelegate {
         ventana?.makeKeyAndOrderFront(nil)
     }
 
-    /// Abre la ventana en Inicio o en Reuniones.
+    /// Abre la ventana en Inicio, en Reuniones o en Cómo se usa.
     func mostrar(seccion nueva: Seccion) {
         seccion = nueva
         elegida = nil
@@ -252,6 +257,8 @@ final class VentanaReuniones: NSObject, NSWindowDelegate, WKNavigationDelegate {
             "inicio-filtros": Pagina.filtros(filtro),
             "inicio-lista": Pagina.listaInicio(dictados: dictados, reuniones: todas, filtro: filtro),
             "reuniones-lista": Pagina.listaReuniones(encontradas, busqueda: busqueda, hayAlguna: !todas.isEmpty),
+            // Los permisos se cambian afuera (Ajustes del Sistema): se vuelven a mirar cada vez que se pinta.
+            "ayuda-cuerpo": Pagina.comoSeUsa(permisos: Ayuda.permisos()),
         ]
         if let r = abierta {
             let visibles: [Pestana] = [.notas] + (r.minuta != nil ? [.minuta] : []) + [.transcripcion]
@@ -321,6 +328,12 @@ final class VentanaReuniones: NSObject, NSWindowDelegate, WKNavigationDelegate {
             alGrabar?()
         case "detener":
             alDetener?()
+        case "permiso":
+            Ayuda.activar(valor) { [weak self] in self?.pintar() }
+        case "abrirAjustes":
+            alAbrirAjustes?()
+        case "abrirArchivo":
+            Ayuda.abrir(valor)
         default:
             break
         }
@@ -667,12 +680,13 @@ enum Pagina {
         let imagen = icono.isEmpty ? "" : #"<img src="\#(icono)" alt="">"#
         return """
         <!doctype html><html lang="es"><head><meta charset="utf-8">
-        <meta name="color-scheme" content="light dark"><style>\(estiloBase)\(estilo)</style></head>
+        <meta name="color-scheme" content="light dark"><style>\(estiloBase)\(estilo)\(Ayuda.estilo)</style></head>
         <body data-vista="inicio" data-seccion="inicio">
         <aside id="lado">
           <div class="marca-app">\(imagen)<span>Minuta</span></div>
           <div class="nav" role="button" data-accion="ir" data-valor="inicio">\(Icono.casa)<span>Inicio</span></div>
           <div class="nav" role="button" data-accion="ir" data-valor="reuniones">\(Icono.lista)<span>Reuniones</span></div>
+          <div class="nav" role="button" data-accion="ir" data-valor="ayuda">\(Ayuda.iconoNav)<span>Cómo se usa</span></div>
           <div class="caja-atajos" id="atajos"></div>
         </aside>
         <div id="centro">
@@ -687,6 +701,7 @@ enum Pagina {
             <div class="filtros"><span class="filtro activo">Todas</span></div>
             <div id="reuniones-lista"></div>
           </div></div></section>
+          <section class="pagina" id="ayuda"><div class="desplazable"><div class="contenido" id="ayuda-cuerpo"></div></div></section>
           <section class="pagina" id="detalle">
             <div id="detalle-barra"></div>
             <div class="desplazable"><main class="doc" id="detalle-cuerpo"></main></div>
@@ -968,7 +983,8 @@ enum Pagina {
       font-size: 15px; font-weight: 550; color: var(--suave); }
     .nav svg { width: 19px; height: 19px; flex: none; }
     .nav:hover { background: var(--hover); }
-    body[data-seccion=inicio] .nav[data-valor=inicio], body[data-seccion=reuniones] .nav[data-valor=reuniones] {
+    body[data-seccion=inicio] .nav[data-valor=inicio], body[data-seccion=reuniones] .nav[data-valor=reuniones],
+    body[data-seccion=ayuda] .nav[data-valor=ayuda] {
       background: var(--acento); color: var(--acento-texto); }
     .caja-atajos { margin-top: auto; border: 1px solid var(--linea); border-radius: 12px; padding: 12px 13px 8px; font-size: 12.5px; color: var(--suave); }
     .caja-atajos .rotulo { font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--tenue); margin-bottom: 6px; }
@@ -978,7 +994,8 @@ enum Pagina {
 
     #centro { flex: 1; min-width: 0; position: relative; }
     .pagina { position: absolute; inset: 0; display: flex; flex-direction: column; visibility: hidden; }
-    body[data-vista=inicio] #inicio, body[data-vista=reuniones] #reuniones, body[data-vista=detalle] #detalle { visibility: visible; }
+    body[data-vista=inicio] #inicio, body[data-vista=reuniones] #reuniones, body[data-vista=detalle] #detalle,
+    body[data-vista=ayuda] #ayuda { visibility: visible; }
     .desplazable { flex: 1; overflow-y: auto; }
     .contenido { max-width: 900px; margin: 0 auto; padding: 50px 52px 80px; }
 

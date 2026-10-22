@@ -91,6 +91,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.grabar()
         }
         ventanaReuniones.alDetener = { [weak self] in self?.detener() }
+        ventanaReuniones.alAbrirAjustes = { [weak self] in self?.ajustes.mostrar() }
         dictado.alOrdenar = { [weak self] in
             self?.ordenandoDictado = true
             self?.refrescar()
@@ -570,31 +571,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Otros
 
-    @objc private func ayuda() {
-        let alerta = NSAlert()
-        alerta.messageText = "Cómo se usa Minuta"
-        let r = Atajos.reunion, d = Atajos.dictado
-        alerta.informativeText = """
-        Reuniones (con resumen)
-        1. Aprieta \(r.texto) (\(r.textoLargo)) o el ícono ⏺ de arriba › Grabar reunión.
-        2. Abajo en la pantalla aparece una barra roja: está grabando tu voz y la de la llamada.
-        3. Al terminar, aprieta Detener en esa barra (o \(r.texto) otra vez).
-        4. En unos minutos te llega un aviso: el resumen y la transcripción quedan en ~/Reuniones.
-
-        Dictado (el texto se escribe donde está el cursor y queda copiado)
-        • Corto: mantén apretadas ⌃⌥ (Control + Opción), habla y suéltalas.
-        • Largo: aprieta \(d.texto), habla todo lo que quieras y aprieta \(d.texto) otra vez (o Detener).
-          También lo terminas apretando solo Espacio.
-        • Si hablas más de \(Dictado.palabrasParaOrdenar) palabras, Claude lo ordena antes de escribirlo (saca repeticiones y vueltas).
-          Se apaga en Ajustes.
-          Si partiste manteniendo ⌃⌥ y te alargaste, aprieta Espacio sin soltar y sigue como largo.
-
-        Los atajos se cambian en el ícono › Ajustes….
-        """
-        alerta.addButton(withTitle: "Entendido")
-        NSApp.activate(ignoringOtherApps: true)
-        alerta.runModal()
-    }
+    /// "Cómo se usa" (y la primera vez que se abre Minuta): la ventana en su página de ayuda, con los permisos.
+    @objc private func ayuda() { ventanaReuniones.mostrar(seccion: .comoSeUsa) }
 
     @objc private func abrirAjustes() { ajustes.mostrar() }
 
