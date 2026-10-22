@@ -16,7 +16,7 @@ final class Indicador {
             case .escribiendo: return "Escribiendo…"
             }
         }
-        var atajo: String { self == .reunion ? "⌃⌥R" : "⌃⌥D" }
+        var atajo: String { self == .reunion ? Atajos.reunion.texto : Atajos.dictado.texto }
     }
 
     var alDetener: ((Modo) -> Void)?

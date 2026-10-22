@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 // Minuta: un ícono en la barra de arriba del Mac.
 // Grabar → Detener → transcribe con Whisper en tu Mac → resume con Claude → deja todo en ~/Reuniones.
-// Dictar (⌃⌥D) → transcribe y escribe el texto donde está el cursor.
+// Dictar (⌃⌥D, o el atajo que elijas en Ajustes) → transcribe y escribe el texto donde está el cursor.
 
 final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let item: NSStatusItem = {
@@ -32,16 +32,13 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var transcribiendoDictado = false
     private let indicador = Indicador()
     private var modoIndicador: Indicador.Modo?
+    private let ajustes = Ajustes()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         ServidorWhisper.compartido.limpiarRestos()
-        atajos = [
-            Atajo(tecla: kVK_ANSI_R) { [weak self] in
-                guard let self else { return }
-                if self.grabandoDesde == nil { self.grabar() } else { self.detener() }
-            },
-            Atajo(tecla: kVK_ANSI_D) { [weak self] in self?.alternarDictado() },
-        ]
+        registrarAtajos()
+        ajustes.alSoltarAtajos = { [weak self] in self?.atajos = [] }
+        ajustes.alRegistrarAtajos = { [weak self] in self?.registrarAtajos() ?? (false, false) }
         grabador.alCortarse = { [weak self] error in
             DispatchQueue.main.async { self?.grabacionCortada(error) }
         }
@@ -85,23 +82,39 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         _ = listo.wait(timeout: .now() + 3)
     }
 
+    /// Registra los atajos globales que dicen los Ajustes y cuenta cuáles aceptó macOS.
+    /// Suelta primero los anteriores: si no, volver a registrar la misma combinación falla.
+    @discardableResult
+    private func registrarAtajos() -> (reunion: Bool, dictado: Bool) {
+        atajos = []
+        let reunion = Atajo(Atajos.reunion) { [weak self] in
+            guard let self else { return }
+            if self.grabandoDesde == nil { self.grabar() } else { self.detener() }
+        }
+        let dictar = Atajo(Atajos.dictado) { [weak self] in self?.alternarDictado() }
+        atajos = [reunion, dictar]
+        refrescar()   // el toolTip muestra los atajos
+        return (reunion.registrado, dictar.registrado)
+    }
+
     // MARK: Menú
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        let r = Atajos.reunion.texto, d = Atajos.dictado.texto
         if let desde = grabandoDesde {
             menu.addItem(titulo("\(pausadoDesde == nil ? "Grabando" : "En pausa") · \(Self.duracion(desde: desde, hasta: pausadoDesde))"))
             menu.addItem(accion(pausadoDesde == nil ? "Pausar" : "Seguir grabando", #selector(alternarPausa)))
-            menu.addItem(accion("Detener y resumir  (⌃⌥R)", #selector(detener), tecla: "s"))
+            menu.addItem(accion("Detener y resumir  (\(r))", #selector(detener), tecla: "s"))
         } else {
-            menu.addItem(accion("Grabar reunión  (⌃⌥R)", #selector(grabar), tecla: "r"))
+            menu.addItem(accion("Grabar reunión  (\(r))", #selector(grabar), tecla: "r"))
         }
         if let desde = dictado.desde {
-            menu.addItem(accion("Terminar dictado · \(Self.duracion(desde: desde))  (⌃⌥D)", #selector(alternarDictado)))
+            menu.addItem(accion("Terminar dictado · \(Self.duracion(desde: desde))  (\(d))", #selector(alternarDictado)))
         } else if transcribiendoDictado {
             menu.addItem(titulo("Escribiendo el dictado…"))
         } else {
-            menu.addItem(accion("Dictar  (⌃⌥D)", #selector(alternarDictado), tecla: "d"))
+            menu.addItem(accion("Dictar  (\(d))", #selector(alternarDictado), tecla: "d"))
         }
         if !dictado.activo, !transcribiendoDictado, Dictado.ultimo() != nil {
             menu.addItem(accion("Copiar último dictado", #selector(copiarUltimoDictado)))
@@ -115,6 +128,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(accion("Abrir último resumen", #selector(abrirUltimo)))
         }
         menu.addItem(accion("Abrir carpeta de reuniones", #selector(abrirCarpeta)))
+        menu.addItem(accion("Ajustes…", #selector(abrirAjustes), tecla: ","))
         menu.addItem(accion("Cómo se usa", #selector(ayuda)))
         menu.addItem(.separator())
         menu.addItem(accion("Salir", #selector(salir), tecla: "q"))
@@ -138,19 +152,24 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if dictado.activo {
             modo = .dictado
             boton.image = Self.simbolo("mic.circle.fill", color: .systemOrange)
-            boton.toolTip = "Dictando · ⌃⌥D para terminar"
+            boton.toolTip = "Dictando · \(Atajos.dictado.texto) para terminar"
         } else if transcribiendoDictado {
             modo = .escribiendo
             boton.image = Self.simbolo("ellipsis.circle.fill", color: .systemOrange)
             boton.toolTip = "Escribiendo el dictado…"
         } else if let desde = grabandoDesde {
             modo = .reunion
-            boton.image = Self.simbolo("record.circle.fill", color: .systemRed)
-            boton.toolTip = "Grabando · \(Self.duracion(desde: desde))"
+            if pausadoDesde == nil {
+                boton.image = Self.simbolo("record.circle.fill", color: .systemRed)
+                boton.toolTip = "Grabando · \(Self.duracion(desde: desde))"
+            } else {
+                boton.image = Self.simbolo("pause.circle.fill", color: .systemGray)
+                boton.toolTip = "En pausa · \(Self.duracion(desde: desde, hasta: pausadoDesde))"
+            }
         } else {
             modo = nil
             boton.image = Self.simbolo(enProceso.isEmpty ? "record.circle" : "ellipsis.circle", color: nil)
-            boton.toolTip = "Minuta · ⌃⌥R grabar reunión · ⌃⌥D dictar"
+            boton.toolTip = "Minuta · \(Atajos.reunion.texto) grabar reunión · \(Atajos.dictado.texto) dictar"
         }
         // Siempre del mismo ancho (sin el contador): si crece, macOS lo esconde cuando no cabe junto a la muesca.
         boton.title = ""
@@ -406,22 +425,27 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func ayuda() {
         let alerta = NSAlert()
         alerta.messageText = "Cómo se usa Minuta"
+        let r = Atajos.reunion, d = Atajos.dictado
         alerta.informativeText = """
         Reuniones (con resumen)
-        1. Aprieta ⌃⌥R (Control + Opción + R) o el ícono ⏺ de arriba › Grabar reunión.
+        1. Aprieta \(r.texto) (\(r.textoLargo)) o el ícono ⏺ de arriba › Grabar reunión.
         2. Abajo en la pantalla aparece una barra roja: está grabando tu voz y la de la llamada.
-        3. Al terminar, aprieta Detener en esa barra (o ⌃⌥R otra vez).
+        3. Al terminar, aprieta Detener en esa barra (o \(r.texto) otra vez).
         4. En unos minutos te llega un aviso: el resumen y la transcripción quedan en ~/Reuniones.
 
         Dictado (texto corto donde estás escribiendo)
         1. Pon el cursor donde quieras el texto (WhatsApp, correo, cualquier campo).
-        2. Aprieta ⌃⌥D: aparece una barra naranja. Habla.
-        3. Aprieta ⌃⌥D otra vez (o Detener): el texto se escribe solo y queda copiado.
+        2. Aprieta \(d.texto): aparece una barra naranja. Habla.
+        3. Aprieta \(d.texto) otra vez (o Detener): el texto se escribe solo y queda copiado.
+
+        Los atajos se cambian en el ícono › Ajustes….
         """
         alerta.addButton(withTitle: "Entendido")
         NSApp.activate(ignoringOtherApps: true)
         alerta.runModal()
     }
+
+    @objc private func abrirAjustes() { ajustes.mostrar() }
 
     @objc private func abrirUltimo() {
         if let ultimoResumen { NSWorkspace.shared.open(ultimoResumen) }
