@@ -33,6 +33,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var modoIndicador: Indicador.Modo?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        ServidorWhisper.compartido.limpiarRestos()
         atajos = [
             Atajo(tecla: kVK_ANSI_R) { [weak self] in
                 guard let self else { return }
@@ -72,6 +73,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        ServidorWhisper.compartido.apagar()
         guard grabandoDesde != nil else { return }
         let listo = DispatchSemaphore(value: 0)
         Task { await grabador.detener(); listo.signal() }

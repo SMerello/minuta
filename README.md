@@ -19,7 +19,7 @@ Graba tus reuniones desde la barra de arriba del Mac, las transcribe **en tu pro
 4. **Resume con Claude** al estilo de las notas de reunión: TL;DR, resumen general, puntos clave, decisiones, tareas y preguntas abiertas, con una plantilla que puedes editar. Por defecto usa [Claude Code](https://claude.com/claude-code) (`claude -p`) con tu suscripción; también puede usar la API de Anthropic.
 5. **Le pone nombre a la carpeta** según el tema de la reunión.
 
-**Dictado:** aprieta `⌃⌥D` (Control + Opción + D), habla, y vuelve a apretarlo. El texto se escribe solo donde está el cursor (un chat, un correo, cualquier campo), queda copiado en el portapapeles y se guarda en `~/Reuniones/Dictados/AAAA-MM-DD.md`. Para que se escriba solo, macOS pide el permiso de **Accesibilidad** la primera vez; sin él, el texto queda copiado y lo pegas con ⌘V.
+**Dictado:** aprieta `⌃⌥D` (Control + Opción + D), habla, y vuelve a apretarlo. El texto se escribe solo donde está el cursor (un chat, un correo, cualquier campo), queda copiado en el portapapeles y se guarda en `~/Reuniones/Dictados/AAAA-MM-DD.md`. Para que se escriba solo, macOS pide el permiso de **Accesibilidad** la primera vez; sin él, el texto queda copiado y lo pegas con ⌘V. Al empezar a dictar, Minuta carga Whisper en memoria (`whisper-server`) mientras hablas y lo deja cargado 15 minutos después del último dictado, así el texto aparece en un segundo o dos; pasado ese rato lo cierra para liberar ~1,7 GB.
 
 También sirve para **cualquier audio que ya tengas** (notas de voz, grabaciones viejas): menú › *Procesar un audio…*
 

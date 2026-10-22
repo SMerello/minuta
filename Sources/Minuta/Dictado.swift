@@ -24,6 +24,7 @@ final class Dictado {
         ]
         let grabadora = try AVAudioRecorder(url: url, settings: ajustes)
         guard grabadora.record() else { throw ErrorDictado.noGraba }
+        ServidorWhisper.compartido.preparar()   // carga el modelo mientras hablas
         self.grabadora = grabadora
         archivo = url
         desde = Date()
@@ -50,6 +51,15 @@ final class Dictado {
     }
 
     private static func transcribir(_ wav: URL) throws -> String? {
+        let duracion = (try? AVAudioFile(forReading: wav)).map { Double($0.length) / $0.fileFormat.sampleRate } ?? 30
+        let bruto = try ServidorWhisper.compartido.transcribir(wav, segundos: duracion) ?? transcribirSinServidor(wav)
+        let texto = bruto.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }.joined(separator: " ")
+        return texto.isEmpty || esAlucinacion(texto) ? nil : texto
+    }
+
+    /// Como antes del servidor: whisper-cli carga el modelo en cada dictado (unos segundos más).
+    private static func transcribirSinServidor(_ wav: URL) throws -> String {
         guard let whisper = ["/opt/homebrew/bin/whisper-cli", "/usr/local/bin/whisper-cli"]
             .first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { throw ErrorDictado.sinWhisper }
         let p = Process()
@@ -63,14 +73,13 @@ final class Dictado {
         let datos = salida.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
         guard p.terminationStatus == 0 else { throw ErrorDictado.whisperFallo }
-        let texto = (String(data: datos, encoding: .utf8) ?? "")
-            .split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }.joined(separator: " ")
-        return texto.isEmpty || esAlucinacion(texto) ? nil : texto
+        return String(data: datos, encoding: .utf8) ?? ""
     }
 
     /// Frases que Whisper inventa cuando no escucha voz (igual que en procesar.py).
     private static func esAlucinacion(_ texto: String) -> Bool {
+        // Con silencio, Whisper a veces devuelve letras sueltas: ", a, a, a,".
+        if !texto.split(whereSeparator: { !$0.isLetter }).contains(where: { $0.count > 1 }) { return true }
         let t = texto.lowercased().replacingOccurrences(of: " ", with: "")
         let frases = ["amara.org", "subtítulosrealizados", "subtitulosrealizados", "graciasporver",
                       "suscríbete", "suscribete", "suscríbanse", "thanksforwatching", "[música]", "(música)"]
