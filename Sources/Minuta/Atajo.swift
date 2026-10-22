@@ -150,10 +150,10 @@ struct Combinacion: Codable, Equatable {
     }
 }
 
-/// Los atajos que eligió el usuario en Ajustes (quedan en UserDefaults); si nunca los cambió, ⌃⌥R y ⌃⌥D.
+/// Los atajos que eligió el usuario en Ajustes (quedan en UserDefaults); si nunca los cambió, ⌃⌥R y ⌃⌥Espacio.
 enum Atajos {
     static let reunionDeSiempre = Combinacion(tecla: kVK_ANSI_R, modificadores: controlKey | optionKey)
-    static let dictadoDeSiempre = Combinacion(tecla: kVK_ANSI_D, modificadores: controlKey | optionKey)
+    static let dictadoDeSiempre = Combinacion(tecla: kVK_Space, modificadores: controlKey | optionKey)
 
     static var reunion: Combinacion {
         get { leer("atajoReunion") ?? reunionDeSiempre }

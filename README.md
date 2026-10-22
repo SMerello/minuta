@@ -19,11 +19,11 @@ Graba tus reuniones desde la barra de arriba del Mac, las transcribe **en tu pro
 4. **Resume con Claude** al estilo de las notas de reunión: TL;DR, resumen general, puntos clave, decisiones, tareas y preguntas abiertas, con una plantilla que puedes editar. Por defecto usa [Claude Code](https://claude.com/claude-code) (`claude -p`) con tu suscripción; también puede usar la API de Anthropic.
 5. **Le pone nombre a la carpeta** según el tema de la reunión.
 
-**Dictado:** aprieta `⌃⌥D` (Control + Opción + D), habla, y vuelve a apretarlo. El texto se escribe solo donde está el cursor (un chat, un correo, cualquier campo), queda copiado en el portapapeles y se guarda en `~/Reuniones/Dictados/AAAA-MM-DD.md`. Para que se escriba solo, macOS pide el permiso de **Accesibilidad** la primera vez; sin él, el texto queda copiado y lo pegas con ⌘V. Al empezar a dictar, Minuta carga Whisper en memoria (`whisper-server`) mientras hablas y lo deja cargado 15 minutos después del último dictado, así el texto aparece en un segundo o dos; pasado ese rato lo cierra para liberar ~1,7 GB.
+**Dictado:** para algo corto, mantén apretadas `⌃⌥` (Control + Opción) mientras hablas y suéltalas. Para algo largo, aprieta `⌃⌥Espacio`, habla todo lo que quieras y vuelve a apretarlo; si partiste manteniendo ⌃⌥ y te alargaste, aprieta Espacio sin soltar y sigue como largo. El texto se escribe solo donde está el cursor (un chat, un correo, cualquier campo), queda copiado en el portapapeles y se guarda en `~/Reuniones/Dictados/AAAA-MM-DD.md`. Para que se escriba solo, macOS pide el permiso de **Accesibilidad** la primera vez; sin él, el texto queda copiado y lo pegas con ⌘V. Al empezar a dictar, Minuta carga Whisper en memoria (`whisper-server`) mientras hablas y lo deja cargado 15 minutos después del último dictado, así el texto aparece en un segundo o dos; pasado ese rato lo cierra para liberar ~1,7 GB.
 
 **Barra flotante:** mientras grabas o dictas aparece abajo una barra con el tiempo y tres botones: pausa (solo en reuniones: no graba nada mientras dura), detener y ✕ para descartar (la reunión descartada va a la Papelera, sin resumen). Si un dictado se pegó en el lugar equivocado, ícono › **Copiar último dictado**.
 
-**Atajos:** ⌃⌥R y ⌃⌥D son los de fábrica; los cambias en ícono › **Ajustes…** (haz clic en el atajo y aprieta la combinación nueva).
+**Atajos:** ⌃⌥R (reunión) y ⌃⌥Espacio (dictado largo) son los de fábrica; los cambias en ícono › **Ajustes…** (haz clic en el atajo y aprieta la combinación nueva). Ahí también se apaga el dictado corto con ⌃⌥.
 
 También sirve para **cualquier audio que ya tengas** (notas de voz, grabaciones viejas): menú › *Procesar un audio…*
 

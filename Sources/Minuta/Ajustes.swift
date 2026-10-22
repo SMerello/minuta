@@ -8,16 +8,19 @@ final class Ajustes: NSObject, NSWindowDelegate {
     var alSoltarAtajos: () -> Void = {}
     /// Vuelve a registrar los atajos que hay en `Atajos` y dice cuáles aceptó macOS.
     var alRegistrarAtajos: () -> (reunion: Bool, dictado: Bool) = { (true, true) }
+    /// El dictado corto (mantener ⌃⌥), para prenderlo o apagarlo desde aquí.
+    var mantener: Mantener?
 
     private enum Accion {
         case reunion, dictado
-        var nombre: String { self == .reunion ? "Grabar reunión" : "Dictar" }
+        var nombre: String { self == .reunion ? "Grabar reunión" : "Dictado largo" }
     }
 
     private var ventana: NSWindow?
     private let botonReunion = NSButton(title: "", target: nil, action: nil)
     private let botonDictado = NSButton(title: "", target: nil, action: nil)
     private let aviso = NSTextField(wrappingLabelWithString: "")
+    private let casillaMantener = NSButton(checkboxWithTitle: "Mantener ⌃⌥ apretadas", target: nil, action: nil)
     private var capturando: Accion?
     private var monitor: Any?
 
@@ -43,9 +46,12 @@ final class Ajustes: NSObject, NSWindowDelegate {
             boton.action = selector
             boton.widthAnchor.constraint(equalToConstant: 190).isActive = true
         }
+        casillaMantener.target = self
+        casillaMantener.action = #selector(cambiarMantener)
         let grilla = NSGridView(views: [
             [NSTextField(labelWithString: "Grabar reunión"), botonReunion],
-            [NSTextField(labelWithString: "Dictar"), botonDictado],
+            [NSTextField(labelWithString: "Dictado largo"), botonDictado],
+            [NSTextField(labelWithString: "Dictado corto"), casillaMantener],
         ])
         grilla.rowSpacing = 10
         grilla.columnSpacing = 12
@@ -84,11 +90,18 @@ final class Ajustes: NSObject, NSWindowDelegate {
     private func actualizarBotones() {
         botonReunion.title = capturando == .reunion ? "Aprieta la combinación…" : Atajos.reunion.texto
         botonDictado.title = capturando == .dictado ? "Aprieta la combinación…" : Atajos.dictado.texto
+        casillaMantener.state = mantener?.encendido ?? true ? .on : .off
     }
 
     private func avisar(_ texto: String, error: Bool = false) {
         aviso.stringValue = texto
         aviso.textColor = error ? .systemRed : .secondaryLabelColor
+    }
+
+    @objc private func cambiarMantener() {
+        mantener?.encendido = casillaMantener.state == .on
+        avisar(casillaMantener.state == .on ? "Mantén ⌃⌥ mientras hablas y suéltalas para que se escriba."
+                                             : "Dictado corto apagado: dicta con \(Atajos.dictado.texto).")
     }
 
     // MARK: Capturar

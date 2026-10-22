@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 // Minuta: un ícono en la barra de arriba del Mac.
 // Grabar → Detener → transcribe con Whisper en tu Mac → resume con Claude → deja todo en ~/Reuniones.
-// Dictar (⌃⌥D, o el atajo que elijas en Ajustes) → transcribe y escribe el texto donde está el cursor.
+// Dictar (mantén ⌃⌥ para algo corto, o ⌃⌥Espacio para algo largo) → transcribe y escribe el texto donde está el cursor.
 
 final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let item: NSStatusItem = {
@@ -33,12 +33,26 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let indicador = Indicador()
     private var modoIndicador: Indicador.Modo?
     private let ajustes = Ajustes()
+    private let mantener = Mantener()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         ServidorWhisper.compartido.limpiarRestos()
         registrarAtajos()
         ajustes.alSoltarAtajos = { [weak self] in self?.atajos = [] }
         ajustes.alRegistrarAtajos = { [weak self] in self?.registrarAtajos() ?? (false, false) }
+        ajustes.mantener = mantener
+        mantener.alEmpezar = { [weak self] in
+            guard let self, !self.dictado.activo, !self.transcribiendoDictado else { return false }
+            self.alternarDictado()
+            return self.dictado.activo
+        }
+        mantener.alSoltar = { [weak self] in
+            guard let self, let desde = self.dictado.desde else { return }
+            // Un toque cortito no alcanza a ser un dictado: se descarta sin avisar "No escuché nada".
+            if Date().timeIntervalSince(desde) < 0.6 { self.descartarDictado(sonido: false) } else { self.alternarDictado() }
+        }
+        mantener.alInterrumpir = { [weak self] in self?.descartarDictado(sonido: false) }
+        mantener.vigilar()
         grabador.alCortarse = { [weak self] error in
             DispatchQueue.main.async { self?.grabacionCortada(error) }
         }
@@ -89,9 +103,19 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         atajos = []
         let reunion = Atajo(Atajos.reunion) { [weak self] in
             guard let self else { return }
+            // Si sostuviste ⌃⌥ un rato antes de la R, partió un dictado corto que no querías.
+            if self.mantener.grabando { self.descartarDictado(sonido: false) }
             if self.grabandoDesde == nil { self.grabar() } else { self.detener() }
         }
-        let dictar = Atajo(Atajos.dictado) { [weak self] in self?.alternarDictado() }
+        let dictar = Atajo(Atajos.dictado) { [weak self] in
+            guard let self else { return }
+            // Estabas manteniendo ⌃⌥ y apretaste Espacio: el mismo dictado sigue como largo, sin cortarse.
+            if self.mantener.grabando, self.dictado.activo {
+                self.mantener.olvidar()
+            } else {
+                self.alternarDictado()
+            }
+        }
         atajos = [reunion, dictar]
         refrescar()   // el toolTip muestra los atajos
         return (reunion.registrado, dictar.registrado)
@@ -211,10 +235,11 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Dictar
 
-    private func descartarDictado() {
+    private func descartarDictado(sonido: Bool = true) {
+        mantener.olvidar()
         guard dictado.activo else { return }
         dictado.descartar()
-        NSSound(named: "Bottle")?.play()
+        if sonido { NSSound(named: "Bottle")?.play() }
         refrescar()
     }
 
@@ -227,6 +252,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func alternarDictado() {
         if dictado.activo {
+            mantener.olvidar()
             NSSound(named: "Pop")?.play()
             transcribiendoDictado = true
             refrescar()
@@ -433,10 +459,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         3. Al terminar, aprieta Detener en esa barra (o \(r.texto) otra vez).
         4. En unos minutos te llega un aviso: el resumen y la transcripción quedan en ~/Reuniones.
 
-        Dictado (texto corto donde estás escribiendo)
-        1. Pon el cursor donde quieras el texto (WhatsApp, correo, cualquier campo).
-        2. Aprieta \(d.texto): aparece una barra naranja. Habla.
-        3. Aprieta \(d.texto) otra vez (o Detener): el texto se escribe solo y queda copiado.
+        Dictado (el texto se escribe donde está el cursor y queda copiado)
+        • Corto: mantén apretadas ⌃⌥ (Control + Opción), habla y suéltalas.
+        • Largo: aprieta \(d.texto), habla todo lo que quieras y aprieta \(d.texto) otra vez (o Detener).
+          Si partiste manteniendo ⌃⌥ y te alargaste, aprieta Espacio sin soltar y sigue como largo.
 
         Los atajos se cambian en el ícono › Ajustes….
         """
