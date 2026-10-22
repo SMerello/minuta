@@ -62,6 +62,8 @@ final class Mantener {
             let tarea = DispatchWorkItem { [weak self] in
                 guard let self else { return }
                 self.pendiente = nil
+                // Marcado antes de empezar, para que la app ya lo trate como corto (Espacio no lo termina).
+                self.grabando = true
                 self.grabando = self.alEmpezar()
             }
             pendiente = tarea

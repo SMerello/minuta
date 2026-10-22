@@ -34,6 +34,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var modoIndicador: Indicador.Modo?
     private let ajustes = Ajustes()
     private let mantener = Mantener()
+    private let espacio = EspacioTermina()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         ServidorWhisper.compartido.limpiarRestos()
@@ -53,6 +54,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         mantener.alInterrumpir = { [weak self] in self?.descartarDictado(sonido: false) }
         mantener.vigilar()
+        espacio.alApretar = { [weak self] in
+            guard let self, self.dictado.activo, !self.mantener.grabando else { return }
+            self.alternarDictado()
+        }
         grabador.alCortarse = { [weak self] error in
             DispatchQueue.main.async { self?.grabacionCortada(error) }
         }
@@ -112,6 +117,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // Estabas manteniendo ⌃⌥ y apretaste Espacio: el mismo dictado sigue como largo, sin cortarse.
             if self.mantener.grabando, self.dictado.activo {
                 self.mantener.olvidar()
+                self.refrescar()   // ahora es largo: Espacio lo termina
             } else {
                 self.alternarDictado()
             }
@@ -172,6 +178,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func refrescar() {
         guard let boton = item.button else { return }
+        // Espacio termina solo el dictado largo: nunca en reuniones ni en el dictado corto (ahí se suelta ⌃⌥).
+        espacio.activo = dictado.activo && !mantener.grabando
         let modo: Indicador.Modo?
         if dictado.activo {
             modo = .dictado
@@ -462,6 +470,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Dictado (el texto se escribe donde está el cursor y queda copiado)
         • Corto: mantén apretadas ⌃⌥ (Control + Opción), habla y suéltalas.
         • Largo: aprieta \(d.texto), habla todo lo que quieras y aprieta \(d.texto) otra vez (o Detener).
+          También lo terminas apretando solo Espacio.
           Si partiste manteniendo ⌃⌥ y te alargaste, aprieta Espacio sin soltar y sigue como largo.
 
         Los atajos se cambian en el ícono › Ajustes….
