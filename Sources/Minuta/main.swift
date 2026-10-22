@@ -70,6 +70,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if modo == .reunion { self?.detener() } else { self?.alternarDictado() }
         }
         indicador.alPausar = { [weak self] in self?.alternarPausa() }
+        indicador.nivel = { [weak self] modo in
+            guard let self else { return 0 }
+            return modo == .reunion ? self.grabador.nivelMicrofono : self.dictado.nivel()
+        }
         indicador.alDescartar = { [weak self] modo in
             if modo == .reunion { self?.descartarReunion() } else { self?.descartarDictado() }
         }

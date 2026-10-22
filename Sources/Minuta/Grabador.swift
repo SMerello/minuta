@@ -16,6 +16,16 @@ final class Grabador: NSObject, SCStreamOutput, SCStreamDelegate {
     private var pausas: [(desde: CMTime, hasta: CMTime?)] = []
     private(set) var carpeta: URL?
 
+    /// Volumen de tu micrófono ahora mismo, de 0 a 1 (para las barritas de la barra flotante).
+    /// Si hace rato que no llega audio del micrófono, cuenta como silencio.
+    var nivelMicrofono: Float {
+        candado.lock()
+        defer { candado.unlock() }
+        return Date().timeIntervalSince(ultimoNivel.cuando) < 0.4 ? ultimoNivel.valor : 0
+    }
+    private let candado = NSLock()
+    private var ultimoNivel: (valor: Float, cuando: Date) = (0, .distantPast)
+
     /// Se llama si la grabación se corta sola (por ejemplo, si quitas el permiso).
     var alCortarse: ((Error) -> Void)?
 
@@ -91,6 +101,12 @@ final class Grabador: NSObject, SCStreamOutput, SCStreamDelegate {
         if pausas.contains(where: { pts >= $0.desde && ($0.hasta.map { pts < $0 } ?? true) }) { return }
         if inicio == nil { inicio = pts }
         guard let inicio, let pcm = Grabador.pcm(de: buffer) else { return }
+        if tipo == .microphone {
+            let valor = nivelDeVoz(decibeles: Grabador.decibeles(pcm))
+            candado.lock()
+            ultimoNivel = (valor, Date())
+            candado.unlock()
+        }
         let enPausa = pausas.reduce(0.0) { suma, p in
             guard let hasta = p.hasta, hasta <= pts, p.desde >= inicio else { return suma }
             return suma + (hasta - p.desde).seconds
@@ -100,6 +116,21 @@ final class Grabador: NSObject, SCStreamOutput, SCStreamDelegate {
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         alCortarse?(error)
+    }
+
+    /// Volumen promedio (RMS) del pedazo de audio, en decibeles (0 = lo más fuerte posible).
+    private static func decibeles(_ pcm: AVAudioPCMBuffer) -> Float {
+        let n = Int(pcm.frameLength)
+        guard n > 0 else { return -160 }
+        var suma: Float = 0
+        if let canales = pcm.floatChannelData {
+            for i in 0..<n { suma += canales[0][i] * canales[0][i] }
+        } else if let canales = pcm.int16ChannelData {
+            for i in 0..<n { let x = Float(canales[0][i]) / 32768; suma += x * x }
+        } else {
+            return -160
+        }
+        return 10 * log10(max(suma / Float(n), 1e-16))
     }
 
     /// Copia el audio de un CMSampleBuffer a un AVAudioPCMBuffer.

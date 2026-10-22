@@ -23,11 +23,19 @@ final class Dictado {
             AVLinearPCMIsBigEndianKey: false,
         ]
         let grabadora = try AVAudioRecorder(url: url, settings: ajustes)
+        grabadora.isMeteringEnabled = true   // para las barritas que se mueven con tu voz
         guard grabadora.record() else { throw ErrorDictado.noGraba }
         ServidorWhisper.compartido.preparar()   // carga el modelo mientras hablas
         self.grabadora = grabadora
         archivo = url
         desde = Date()
+    }
+
+    /// Volumen del micrófono ahora mismo, de 0 (silencio) a 1.
+    func nivel() -> Float {
+        guard let grabadora else { return 0 }
+        grabadora.updateMeters()
+        return nivelDeVoz(decibeles: grabadora.averagePower(forChannel: 0))
     }
 
     /// Corta sin transcribir ni escribir nada (el botón ✕ de la barra).

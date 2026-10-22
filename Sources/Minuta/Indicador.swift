@@ -1,7 +1,7 @@
 import AppKit
 
 /// Barra flotante abajo al centro de la pantalla mientras graba o dicta:
-/// punto que parpadea, qué está haciendo, el tiempo y botones con íconos
+/// barritas que se mueven con el volumen de tu micrófono, qué está haciendo, el tiempo y botones con íconos
 /// (pausa solo en reuniones, detener y descartar).
 /// No le quita el foco a la app donde estás escribiendo (panel "no activante").
 final class Indicador {
@@ -22,13 +22,16 @@ final class Indicador {
     var alDetener: ((Modo) -> Void)?
     var alPausar: (() -> Void)?
     var alDescartar: ((Modo) -> Void)?
+    /// Volumen del micrófono (0 a 1) para el modo que se ve; se pregunta ~20 veces por segundo.
+    var nivel: ((Modo) -> Float)?
 
     private static let alto: CGFloat = 36
     private static let lado: CGFloat = 26   // cada botón es un círculo de este tamaño
 
     private var panel: NSPanel?
     private var fondo: NSVisualEffectView?
-    private let punto = NSView()
+    private let ondas = Ondas()
+    private var cuadros: Timer?
     private let etiqueta = NSTextField(labelWithString: "")
     private lazy var pausa = Indicador.boton("pause.fill", self, #selector(pausar))
     private lazy var detenerBoton = Indicador.boton("stop.fill", self, #selector(detener))
@@ -44,9 +47,8 @@ final class Indicador {
         self.pausadoDesde = pausadoDesde
         let panel = self.panel ?? armar()
         let enPausa = pausadoDesde != nil
-        punto.layer?.backgroundColor = (enPausa ? NSColor.systemGray : modo.color).cgColor
-        punto.layer?.opacity = 1
-        if enPausa { punto.layer?.removeAnimation(forKey: "latido") } else { latir() }
+        ondas.color = enPausa ? .systemGray : modo.color
+        animar()
 
         pausa.isHidden = modo != .reunion
         detenerBoton.isHidden = modo == .escribiendo
@@ -81,7 +83,24 @@ final class Indicador {
     }
 
     func ocultar() {
+        cuadros?.invalidate()
+        cuadros = nil
         panel?.orderOut(nil)
+    }
+
+    /// Mueve las barritas: con tu voz al grabar o dictar, planas en pausa, una ola suave mientras escribe.
+    private func animar() {
+        guard cuadros == nil else { return }
+        let reloj = Timer(timeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            if self.modo == .escribiendo {
+                self.ondas.esperar()
+            } else {
+                self.ondas.mostrar(self.pausadoDesde == nil ? self.nivel?(self.modo) ?? 0 : 0)
+            }
+        }
+        RunLoop.main.add(reloj, forMode: .common)   // .common: sigue moviéndose con el menú abierto
+        cuadros = reloj
     }
 
     @objc private func detener() { alDetener?(modo) }
@@ -111,10 +130,8 @@ final class Indicador {
         panel.contentView = fondo
         self.fondo = fondo
 
-        punto.frame = NSRect(x: 14, y: (alto - 10) / 2, width: 10, height: 10)
-        punto.wantsLayer = true
-        punto.layer?.cornerRadius = 5
-        fondo.addSubview(punto)
+        ondas.frame = NSRect(x: 13, y: (alto - 16) / 2, width: Ondas.ancho, height: 16)
+        fondo.addSubview(ondas)
 
         etiqueta.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
         etiqueta.textColor = .white
@@ -125,26 +142,16 @@ final class Indicador {
         return panel
     }
 
-    private func latir() {
-        guard punto.layer?.animation(forKey: "latido") == nil else { return }
-        let latido = CABasicAnimation(keyPath: "opacity")
-        latido.fromValue = 1
-        latido.toValue = 0.25
-        latido.duration = 0.8
-        latido.autoreverses = true
-        latido.repeatCount = .infinity
-        punto.layer?.add(latido, forKey: "latido")
-    }
-
     /// El ancho depende de cuántos botones se ven (reunión 3, dictado 2, escribiendo ninguno).
     private func acomodar(_ panel: NSPanel) {
         let alto = Indicador.alto, lado = Indicador.lado
         let visibles = [pausa, detenerBoton, descartar].filter { !$0.isHidden }
         // Con botones, ancho fijo para que no baile con el reloj; sin botones, justo el texto.
         let anchoTexto: CGFloat = visibles.isEmpty ? ceil(etiqueta.intrinsicContentSize.width) + 10 : 132
-        let ancho = 32 + anchoTexto + CGFloat(visibles.count) * (lado + 4) + 6
-        etiqueta.frame = NSRect(x: 32, y: (alto - 17) / 2, width: anchoTexto, height: 17)
-        var x = 32 + anchoTexto
+        let izquierda: CGFloat = 13 + Ondas.ancho + 9
+        let ancho = izquierda + anchoTexto + CGFloat(visibles.count) * (lado + 4) + 6
+        etiqueta.frame = NSRect(x: izquierda, y: (alto - 17) / 2, width: anchoTexto, height: 17)
+        var x = izquierda + anchoTexto
         for b in visibles {
             b.frame = NSRect(x: x, y: (alto - lado) / 2, width: lado, height: lado)
             x += lado + 4
@@ -175,5 +182,62 @@ final class Indicador {
         guard let zona = pantalla?.visibleFrame else { return }
         let tam = panel.frame.size
         panel.setFrameOrigin(NSPoint(x: zona.midX - tam.width / 2, y: zona.minY + 28))
+    }
+}
+
+/// Volumen en decibeles → 0 a 1. Una voz normal al micrófono anda entre −35 y −15 dB; bajo −55 es silencio.
+func nivelDeVoz(decibeles: Float) -> Float {
+    min(1, max(0, (decibeles + 55) / 40))
+}
+
+/// Cinco barritas tipo ecualizador. Suben rápido cuando hablas y bajan suave, para que se vea vivo y no nervioso.
+final class Ondas: NSView {
+    static let ancho: CGFloat = 5 * 3 + 4 * 2.5
+
+    var color: NSColor = .systemRed {
+        didSet { barras.forEach { $0.backgroundColor = color.cgColor } }
+    }
+
+    private static let pesos: [CGFloat] = [0.5, 0.8, 1, 0.75, 0.55]   // las del medio, más altas
+    private var barras: [CALayer] = []
+    private var suave: CGFloat = 0
+    private var fase: CGFloat = 0
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        for _ in Ondas.pesos {
+            let barra = CALayer()
+            barra.cornerRadius = 1.5
+            barra.backgroundColor = color.cgColor
+            layer?.addSublayer(barra)
+            barras.append(barra)
+        }
+        dibujar { _ in 0 }
+    }
+
+    required init?(coder: NSCoder) { fatalError("no se usa") }
+
+    /// `nivel` de 0 a 1. En silencio quedan casi planas: así se nota si el micrófono no está captando.
+    func mostrar(_ nivel: Float) {
+        let objetivo = CGFloat(nivel)
+        suave = objetivo > suave ? objetivo : suave * 0.8 + objetivo * 0.2
+        dibujar { i in self.suave * Ondas.pesos[i] * CGFloat.random(in: 0.7...1.15) }
+    }
+
+    /// Mientras Whisper transcribe: una ola que recorre las barritas.
+    func esperar() {
+        fase += 0.35
+        dibujar { i in 0.25 + 0.3 * (1 + sin(self.fase - CGFloat(i) * 0.9)) }
+    }
+
+    private func dibujar(_ altura: (Int) -> CGFloat) {
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.08)
+        for (i, barra) in barras.enumerated() {
+            let alto = max(3, bounds.height * min(1, altura(i)))
+            barra.frame = CGRect(x: CGFloat(i) * 5.5, y: (bounds.height - alto) / 2, width: 3, height: alto)
+        }
+        CATransaction.commit()
     }
 }
