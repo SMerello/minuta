@@ -30,6 +30,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var atajos: [Atajo] = []
     private let dictado = Dictado()
     private var transcribiendoDictado = false
+    private var ordenandoDictado = false      // Claude está ordenando un dictado largo
     private let indicador = Indicador()
     private var modoIndicador: Indicador.Modo?
     private let ajustes = Ajustes()
@@ -146,7 +147,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let desde = dictado.desde {
             menu.addItem(accion("Terminar dictado · \(Self.duracion(desde: desde))  (\(d))", #selector(alternarDictado)))
         } else if transcribiendoDictado {
-            menu.addItem(titulo("Escribiendo el dictado…"))
+            menu.addItem(titulo(ordenandoDictado ? "Ordenando el dictado con Claude…" : "Escribiendo el dictado…"))
         } else {
             menu.addItem(accion("Dictar  (\(d))", #selector(alternarDictado), tecla: "d"))
         }
@@ -190,9 +191,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             boton.image = Self.simbolo("mic.circle.fill", color: .systemOrange)
             boton.toolTip = "Dictando · \(Atajos.dictado.texto) para terminar"
         } else if transcribiendoDictado {
-            modo = .escribiendo
+            modo = ordenandoDictado ? .ordenando : .escribiendo
             boton.image = Self.simbolo("ellipsis.circle.fill", color: .systemOrange)
-            boton.toolTip = "Escribiendo el dictado…"
+            boton.toolTip = ordenandoDictado ? "Ordenando el dictado con Claude…" : "Escribiendo el dictado…"
         } else if let desde = grabandoDesde {
             modo = .reunion
             if pausadoDesde == nil {
@@ -217,6 +218,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             switch modo {
             case .dictado?: indicador.mostrar(.dictado, desde: dictado.desde ?? Date())
             case .escribiendo?: indicador.mostrar(.escribiendo)
+            case .ordenando?: indicador.mostrar(.ordenando)
             case .reunion?: indicador.mostrar(.reunion, desde: grabandoDesde ?? Date(), pausadoDesde: pausadoDesde)
             case nil: indicador.ocultar()
             }
@@ -262,6 +264,14 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         avisar("Último dictado copiado", texto.count > 90 ? String(texto.prefix(90)) + "…" : texto)
     }
 
+    /// Guarda el dictado en el historial y lo escribe donde está el cursor.
+    private func entregar(_ texto: String, original: String? = nil) {
+        Dictado.guardar(texto, original: original)
+        if !Dictado.escribir(texto) {
+            avisar("Texto copiado", "Pégalo con ⌘V. Para que se escriba solo, activa Minuta en Ajustes del Sistema › Privacidad y seguridad › Accesibilidad.")
+        }
+    }
+
     @objc private func alternarDictado() {
         if dictado.activo {
             mantener.olvidar()
@@ -270,14 +280,27 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             refrescar()
             dictado.terminar { [weak self] resultado in
                 guard let self else { return }
+                if case .success(let texto?) = resultado, Dictado.valeLaPenaOrdenar(texto) {
+                    // Largo: antes de escribirlo, Claude le saca las vueltas y repeticiones.
+                    self.ordenandoDictado = true
+                    self.refrescar()
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        let ordenado = Dictado.ordenar(texto)
+                        DispatchQueue.main.async {
+                            self.transcribiendoDictado = false
+                            self.ordenandoDictado = false
+                            self.refrescar()
+                            self.entregar(ordenado ?? texto, original: ordenado == nil ? nil : texto)
+                            if ordenado == nil { self.avisar("No pude ordenar el dictado", "Lo escribí tal cual lo dijiste.") }
+                        }
+                    }
+                    return
+                }
                 self.transcribiendoDictado = false
                 self.refrescar()
                 switch resultado {
                 case .success(let texto?):
-                    Dictado.guardar(texto)
-                    if !Dictado.escribir(texto) {
-                        self.avisar("Texto copiado", "Pégalo con ⌘V. Para que se escriba solo, activa Minuta en Ajustes del Sistema › Privacidad y seguridad › Accesibilidad.")
-                    }
+                    self.entregar(texto)
                 case .success(nil):
                     self.avisar("No escuché nada", "Revisa qué micrófono está usando el Mac (por ejemplo, los AirPods).")
                 case .failure(let error):
@@ -475,6 +498,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         • Corto: mantén apretadas ⌃⌥ (Control + Opción), habla y suéltalas.
         • Largo: aprieta \(d.texto), habla todo lo que quieras y aprieta \(d.texto) otra vez (o Detener).
           También lo terminas apretando solo Espacio.
+        • Si hablas más de \(Dictado.palabrasParaOrdenar) palabras, Claude lo ordena antes de escribirlo (saca repeticiones y vueltas).
+          Se apaga en Ajustes.
           Si partiste manteniendo ⌃⌥ y te alargaste, aprieta Espacio sin soltar y sigue como largo.
 
         Los atajos se cambian en el ícono › Ajustes….
@@ -543,6 +568,8 @@ enum Config {
 
     static var idioma: String { (json["idioma"] as? String) ?? "es" }
     static var vocabulario: String { (json["vocabulario"] as? String) ?? "" }
+    /// Modelo de Claude para ordenar los dictados largos ("sonnet" ordena mejor que "haiku" y tarda casi lo mismo).
+    static var modeloDictado: String { (json["modelo_dictado"] as? String) ?? "sonnet" }
 
     static var python: String {
         ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"]

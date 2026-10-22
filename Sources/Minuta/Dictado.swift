@@ -132,14 +132,74 @@ final class Dictado {
         guard let dias = try? FileManager.default.contentsOfDirectory(atPath: carpeta.path),
               let dia = dias.filter({ $0.hasSuffix(".md") }).max(),
               let texto = try? String(contentsOf: carpeta.appendingPathComponent(dia), encoding: .utf8),
-              let linea = texto.components(separatedBy: "\n").last(where: { $0.hasPrefix("[") }),
-              let cierre = linea.firstIndex(of: "]") else { return nil }
-        let dictado = linea[linea.index(after: cierre)...].trimmingCharacters(in: .whitespaces)
+              let marca = texto.range(of: #"(?m)^\[\d{2}:\d{2}\] "#, options: [.regularExpression, .backwards])
+        else { return nil }
+        // Un dictado ordenado puede tener varias líneas; termina donde empieza su "> Original:".
+        var dictado = String(texto[marca.upperBound...])
+        if let original = dictado.range(of: "\n> Original:") { dictado = String(dictado[..<original.lowerBound]) }
+        dictado = dictado.trimmingCharacters(in: .whitespacesAndNewlines)
         return dictado.isEmpty ? nil : dictado
     }
 
+    // MARK: Ordenar con Claude
+
+    /// Ordenar con Claude los dictados largos (se cambia en Ajustes).
+    static var ordenarConIA: Bool {
+        get { UserDefaults.standard.object(forKey: "ordenarDictados") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "ordenarDictados") }
+    }
+
+    /// Desde cuántas palabras vale la pena ordenarlo: lo corto sale tal cual y al instante.
+    static let palabrasParaOrdenar = 25
+
+    static func valeLaPenaOrdenar(_ texto: String) -> Bool {
+        ordenarConIA && texto.split(whereSeparator: { $0.isWhitespace }).count >= palabrasParaOrdenar
+    }
+
+    /// Le pasa el dictado a Claude (`claude -p`, con tu suscripción) para sacar repeticiones, muletillas
+    /// y vueltas. Tarda unos 6 s. Devuelve nil si Claude no está o no respondió: ahí se escribe tal cual.
+    static func ordenar(_ texto: String) -> String? {
+        guard let claude = ["/opt/homebrew/bin/claude", "/usr/local/bin/claude",
+                            FileManager.default.homeDirectoryForCurrentUser.path + "/.local/bin/claude"]
+            .first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { return nil }
+        // Tu versión en Application Support (si la hiciste) manda sobre la del repo.
+        let propia = Config.soporte.appendingPathComponent("dictado.md")
+        guard var instrucciones = (try? String(contentsOf: propia, encoding: .utf8))
+                ?? Bundle.main.url(forResource: "dictado", withExtension: "md", subdirectory: "plantillas")
+                    .flatMap({ try? String(contentsOf: $0, encoding: .utf8) }) else { return nil }
+        if !Config.vocabulario.isEmpty {
+            instrucciones += "\nNombres y palabras que suele usar (escríbelos así): \(Config.vocabulario)\n"
+        }
+
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: claude)
+        p.arguments = ["-p", "--model", Config.modeloDictado, "--tools", "", "--no-session-persistence",
+                       "--strict-mcp-config", "--system-prompt", instrucciones]
+        p.currentDirectoryURL = FileManager.default.temporaryDirectory
+        var entorno = ProcessInfo.processInfo.environment
+        entorno["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (entorno["PATH"] ?? "/usr/bin:/bin")
+        p.environment = entorno
+        let entrada = Pipe(), salida = Pipe()
+        p.standardInput = entrada
+        p.standardOutput = salida
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return nil }
+        entrada.fileHandleForWriting.write(Data("<dictado>\n\(texto)\n</dictado>\n".utf8))
+        try? entrada.fileHandleForWriting.close()
+        // Si se cuelga, mejor escribir el dictado tal cual que dejarte esperando.
+        let corte = DispatchWorkItem { if p.isRunning { p.terminate() } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 40, execute: corte)
+        let datos = salida.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        corte.cancel()
+        guard p.terminationStatus == 0 else { return nil }
+        let ordenado = (String(data: datos, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return ordenado.isEmpty ? nil : ordenado
+    }
+
     /// Agrega el dictado al historial del día.
-    static func guardar(_ texto: String) {
+    /// Si lo ordenó Claude, `original` es lo que dijiste tal cual: queda debajo, por si se perdió algo.
+    static func guardar(_ texto: String, original: String? = nil) {
         let carpeta = Config.carpetaReuniones.appendingPathComponent("Dictados")
         try? FileManager.default.createDirectory(at: carpeta, withIntermediateDirectories: true)
         let dia = DateFormatter(), hora = DateFormatter()
@@ -147,7 +207,7 @@ final class Dictado {
         hora.dateFormat = "HH:mm"
         let ahora = Date()
         let url = carpeta.appendingPathComponent("\(dia.string(from: ahora)).md")
-        let linea = "[\(hora.string(from: ahora))] \(texto)\n\n"
+        let linea = "[\(hora.string(from: ahora))] \(texto)\n" + (original.map { "> Original: \($0)\n" } ?? "") + "\n"
         if let h = try? FileHandle(forWritingTo: url) {
             h.seekToEndOfFile()
             h.write(Data(linea.utf8))

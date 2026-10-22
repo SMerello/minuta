@@ -21,6 +21,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
     private let botonDictado = NSButton(title: "", target: nil, action: nil)
     private let aviso = NSTextField(wrappingLabelWithString: "")
     private let casillaMantener = NSButton(checkboxWithTitle: "Mantener ⌃⌥ apretadas", target: nil, action: nil)
+    private let casillaOrdenar = NSButton(checkboxWithTitle: "Ordenar con Claude los largos", target: nil, action: nil)
     private var capturando: Accion?
     private var monitor: Any?
 
@@ -48,10 +49,13 @@ final class Ajustes: NSObject, NSWindowDelegate {
         }
         casillaMantener.target = self
         casillaMantener.action = #selector(cambiarMantener)
+        casillaOrdenar.target = self
+        casillaOrdenar.action = #selector(cambiarOrdenar)
         let grilla = NSGridView(views: [
             [NSTextField(labelWithString: "Grabar reunión"), botonReunion],
             [NSTextField(labelWithString: "Dictado largo"), botonDictado],
             [NSTextField(labelWithString: "Dictado corto"), casillaMantener],
+            [NSTextField(labelWithString: "Inteligencia"), casillaOrdenar],
         ])
         grilla.rowSpacing = 10
         grilla.columnSpacing = 12
@@ -91,6 +95,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
         botonReunion.title = capturando == .reunion ? "Aprieta la combinación…" : Atajos.reunion.texto
         botonDictado.title = capturando == .dictado ? "Aprieta la combinación…" : Atajos.dictado.texto
         casillaMantener.state = mantener?.encendido ?? true ? .on : .off
+        casillaOrdenar.state = Dictado.ordenarConIA ? .on : .off
     }
 
     private func avisar(_ texto: String, error: Bool = false) {
@@ -102,6 +107,13 @@ final class Ajustes: NSObject, NSWindowDelegate {
         mantener?.encendido = casillaMantener.state == .on
         avisar(casillaMantener.state == .on ? "Mantén ⌃⌥ mientras hablas y suéltalas para que se escriba."
                                              : "Dictado corto apagado: dicta con \(Atajos.dictado.texto).")
+    }
+
+    @objc private func cambiarOrdenar() {
+        Dictado.ordenarConIA = casillaOrdenar.state == .on
+        avisar(casillaOrdenar.state == .on
+               ? "Los dictados de más de \(Dictado.palabrasParaOrdenar) palabras pasan por Claude (unos 6 s más)."
+               : "Los dictados se escriben tal cual los dijiste.")
     }
 
     // MARK: Capturar

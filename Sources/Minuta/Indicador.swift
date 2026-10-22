@@ -6,7 +6,10 @@ import AppKit
 /// No le quita el foco a la app donde estás escribiendo (panel "no activante").
 final class Indicador {
     enum Modo {
-        case reunion, dictado, escribiendo
+        case reunion, dictado, escribiendo, ordenando
+
+        /// Ya no graba: espera a Whisper o a Claude (sin botones, con la ola de espera).
+        var esperando: Bool { self == .escribiendo || self == .ordenando }
 
         var color: NSColor { self == .reunion ? .systemRed : .systemOrange }
         var texto: String {
@@ -14,6 +17,7 @@ final class Indicador {
             case .reunion: return "Grabando"
             case .dictado: return "Dictando"
             case .escribiendo: return "Escribiendo…"
+            case .ordenando: return "Ordenando…"
             }
         }
         var atajo: String { self == .reunion ? Atajos.reunion.texto : Atajos.dictado.texto }
@@ -51,8 +55,8 @@ final class Indicador {
         animar()
 
         pausa.isHidden = modo != .reunion
-        detenerBoton.isHidden = modo == .escribiendo
-        descartar.isHidden = modo == .escribiendo
+        detenerBoton.isHidden = modo.esperando
+        descartar.isHidden = modo.esperando
         pausa.image = Indicador.simbolo(enPausa ? "play.fill" : "pause.fill")
         pausa.toolTip = enPausa ? "Seguir grabando" : "Pausar"
         detenerBoton.toolTip = modo == .reunion ? "Detener y resumir (\(modo.atajo))" : "Terminar y escribir (Espacio o \(modo.atajo))"
@@ -71,7 +75,7 @@ final class Indicador {
 
     func actualizar() {
         guard panel != nil else { return }
-        if modo == .escribiendo {
+        if modo.esperando {
             etiqueta.stringValue = modo.texto
             return
         }
@@ -93,7 +97,7 @@ final class Indicador {
         guard cuadros == nil else { return }
         let reloj = Timer(timeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
             guard let self else { return }
-            if self.modo == .escribiendo {
+            if self.modo.esperando {
                 self.ondas.esperar()
             } else {
                 self.ondas.mostrar(self.pausadoDesde == nil ? self.nivel?(self.modo) ?? 0 : 0)
