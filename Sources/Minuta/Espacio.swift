@@ -7,6 +7,13 @@ import Carbon.HIToolbox
 final class EspacioTermina {
     var alApretar: () -> Void = {}
 
+    /// Apagado por defecto: así puedes seguir escribiendo (con espacios) mientras dictas algo largo, y el
+    /// dictado largo se termina con ⌃⌥Espacio o con Detener. Se prende en Ajustes.
+    static var encendido: Bool {
+        get { UserDefaults.standard.bool(forKey: "espacioTermina") }
+        set { UserDefaults.standard.set(newValue, forKey: "espacioTermina") }
+    }
+
     private var tap: CFMachPort?
     private var comiendo = false   // si me quedé con el Espacio al bajar, también me quedo con el de subir
 

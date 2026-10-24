@@ -242,7 +242,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ventanaReuniones.actualizarGrabando(grabandoDesde != nil)   // el botón Grabar / Detener de la ventana
         guard let boton = item.button else { return }
         // Espacio termina solo el dictado largo: nunca en reuniones ni en el dictado corto (ahí se suelta ⌃⌥).
-        espacio.activo = dictado.activo && !mantener.grabando
+        espacio.activo = EspacioTermina.encendido && dictado.activo && !mantener.grabando
         let modo: Indicador.Modo?
         if dictado.activo {
             modo = .dictado

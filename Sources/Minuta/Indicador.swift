@@ -63,7 +63,7 @@ final class Indicador {
         descartar.isHidden = modo.esperando
         pausa.image = Indicador.simbolo(enPausa ? "play.fill" : "pause.fill")
         pausa.toolTip = enPausa ? "Seguir grabando" : "Pausar"
-        detenerBoton.toolTip = modo == .reunion ? "Detener y resumir (\(modo.atajo))" : "Terminar y escribir (Espacio o \(modo.atajo))"
+        detenerBoton.toolTip = modo == .reunion ? "Detener y resumir (\(modo.atajo))" : "Terminar y escribir (\(EspacioTermina.encendido ? "Espacio o " : "")\(modo.atajo))"
         descartar.toolTip = modo == .reunion ? "Descartar la grabación" : "Descartar el dictado"
         actualizar()
         // Si ya se ve (pausa, o pasa de dictando a escribiendo), queda donde la dejaste, con el mismo centro.

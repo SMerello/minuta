@@ -270,7 +270,7 @@ extension Pagina {
             bajada: "En cualquier app: el texto se escribe donde está el cursor, queda copiado y se guarda en Inicio.",
             #"<div class="filas-ayuda pasos">"# + [
                 paso(tecla("⌃⌥"), "<strong>Corto:</strong> mantén apretadas Control + Opción, habla y suéltalas."),
-                paso(tecla(d), "<strong>Largo:</strong> aprieta \(tecla(d)), habla todo lo que quieras y termina apretando solo \(tecla("Espacio")) (o \(tecla(d)) otra vez)."),
+                paso(tecla(d), "<strong>Largo:</strong> aprieta \(tecla(d)), habla todo lo que quieras (puedes seguir escribiendo) y termina con \(tecla(d)) otra vez o con Detener."),
                 paso(tecla("Espacio"), "<strong>¿Partiste corto y te alargaste?</strong> Sin soltar ⌃⌥, aprieta Espacio: sigue como dictado largo, sin cortarse."),
                 paso(teclaIcono(Ayuda.cruz), "<strong>Descartar:</strong> la ✕ de la barra de abajo bota el dictado sin escribir nada."),
                 paso(icono(Ayuda.copiar), "<strong>¿Se pegó donde no era?</strong> Ícono de arriba › Copiar último dictado, o haz clic en el dictado en Inicio."),

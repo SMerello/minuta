@@ -23,6 +23,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
     private let botonDictado = NSButton(title: "", target: nil, action: nil)
     private let aviso = NSTextField(wrappingLabelWithString: "")
     private let casillaMantener = NSButton(checkboxWithTitle: "Mantener ⌃⌥ apretadas", target: nil, action: nil)
+    private let casillaEspacio = NSButton(checkboxWithTitle: "Terminar el largo con solo Espacio", target: nil, action: nil)
     private let casillaOrdenar = NSButton(checkboxWithTitle: "Ordenar con Claude los largos", target: nil, action: nil)
     private let casillaLlamadas = NSButton(checkboxWithTitle: "Ofrecer grabar cuando empieza una", target: nil, action: nil)
     private let casillaVolumen = NSButton(checkboxWithTitle: "Bajar la música mientras dicto", target: nil, action: nil)
@@ -55,6 +56,8 @@ final class Ajustes: NSObject, NSWindowDelegate {
         }
         casillaMantener.target = self
         casillaMantener.action = #selector(cambiarMantener)
+        casillaEspacio.target = self
+        casillaEspacio.action = #selector(cambiarEspacio)
         casillaOrdenar.target = self
         casillaOrdenar.action = #selector(cambiarOrdenar)
         casillaLlamadas.target = self
@@ -70,6 +73,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
             [NSTextField(labelWithString: "Grabar reunión"), botonReunion],
             [NSTextField(labelWithString: "Dictado largo"), botonDictado],
             [NSTextField(labelWithString: "Dictado corto"), casillaMantener],
+            [NSTextField(labelWithString: ""), casillaEspacio],
             [NSTextField(labelWithString: "Inteligencia"), casillaOrdenar],
             [NSTextField(labelWithString: "Llamadas"), casillaLlamadas],
             [NSTextField(labelWithString: "Calendario"), casillaCalendario],
@@ -115,6 +119,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
         botonReunion.title = capturando == .reunion ? "Aprieta la combinación…" : Atajos.reunion.texto
         botonDictado.title = capturando == .dictado ? "Aprieta la combinación…" : Atajos.dictado.texto
         casillaMantener.state = mantener?.encendido ?? true ? .on : .off
+        casillaEspacio.state = EspacioTermina.encendido ? .on : .off
         casillaOrdenar.state = Dictado.ordenarConIA ? .on : .off
         casillaLlamadas.state = llamadas?.encendido ?? true ? .on : .off
         casillaVolumen.state = Volumen.encendido ? .on : .off
@@ -170,6 +175,13 @@ final class Ajustes: NSObject, NSWindowDelegate {
         } else {
             avisar("Dale permiso en Ajustes del Sistema › Privacidad y seguridad › Calendarios › Minuta.", error: true)
         }
+    }
+
+    @objc private func cambiarEspacio() {
+        EspacioTermina.encendido = casillaEspacio.state == .on
+        avisar(casillaEspacio.state == .on
+               ? "Apretar solo Espacio termina el dictado largo (mientras dictas, Espacio no escribe)."
+               : "El dictado largo se termina con \(Atajos.dictado.texto) o Detener; Espacio escribe normal.")
     }
 
     @objc private func cambiarOrdenar() {
