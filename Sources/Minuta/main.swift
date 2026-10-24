@@ -44,6 +44,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         ServidorWhisper.compartido.limpiarRestos()
+        AlIniciar.prenderLaPrimeraVez()
         NSApp.mainMenu = menuPrincipal()
         registrarAtajos()
         ajustes.alSoltarAtajos = { [weak self] in self?.atajos = [] }

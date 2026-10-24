@@ -28,6 +28,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
     private let casillaLlamadas = NSButton(checkboxWithTitle: "Ofrecer grabar cuando empieza una", target: nil, action: nil)
     private let casillaVolumen = NSButton(checkboxWithTitle: "Bajar la música mientras dicto", target: nil, action: nil)
     private let botonCorrecciones = NSButton(title: "Editar mi lista…", target: nil, action: nil)
+    private let casillaAlIniciar = NSButton(checkboxWithTitle: "Abrir Minuta al prender el Mac", target: nil, action: nil)
     private let casillaCalendario = NSButton(checkboxWithTitle: "Nombrar las reuniones con él", target: nil, action: nil)
     private var capturando: Accion?
     private var monitor: Any?
@@ -64,6 +65,8 @@ final class Ajustes: NSObject, NSWindowDelegate {
         casillaLlamadas.action = #selector(cambiarLlamadas)
         casillaVolumen.target = self
         casillaVolumen.action = #selector(cambiarVolumen)
+        casillaAlIniciar.target = self
+        casillaAlIniciar.action = #selector(cambiarAlIniciar)
         botonCorrecciones.bezelStyle = .rounded
         botonCorrecciones.target = self
         botonCorrecciones.action = #selector(editarCorrecciones)
@@ -79,6 +82,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
             [NSTextField(labelWithString: "Calendario"), casillaCalendario],
             [NSTextField(labelWithString: "Volumen"), casillaVolumen],
             [NSTextField(labelWithString: "Correcciones"), botonCorrecciones],
+            [NSTextField(labelWithString: "Inicio"), casillaAlIniciar],
         ])
         grilla.rowSpacing = 10
         grilla.columnSpacing = 12
@@ -123,6 +127,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
         casillaOrdenar.state = Dictado.ordenarConIA ? .on : .off
         casillaLlamadas.state = llamadas?.encendido ?? true ? .on : .off
         casillaVolumen.state = Volumen.encendido ? .on : .off
+        casillaAlIniciar.state = AlIniciar.encendido || AlIniciar.esperaAprobacion ? .on : .off
         casillaCalendario.state = Calendario.encendido ? .on : .off
     }
 
@@ -142,6 +147,20 @@ final class Ajustes: NSObject, NSWindowDelegate {
         Correcciones.asegurarArchivo()
         NSWorkspace.shared.open(Correcciones.archivo)
         avisar("Una por línea: lo que Whisper escribe mal → cómo tiene que quedar. Guarda y listo.")
+    }
+
+    @objc private func cambiarAlIniciar() {
+        let prender = casillaAlIniciar.state == .on
+        guard AlIniciar.cambiar(prender) else {
+            casillaAlIniciar.state = prender ? .off : .on
+            avisar("macOS no me dejó cambiarlo. Revisa Ajustes del Sistema › General › Ítems de inicio de sesión.", error: true)
+            return
+        }
+        if AlIniciar.esperaAprobacion {
+            avisar("Apruébalo en Ajustes del Sistema › General › Ítems de inicio de sesión (prende Minuta).", error: true)
+        } else {
+            avisar(prender ? "Minuta se va a abrir sola cada vez que prendas el Mac." : "Minuta ya no se abre sola al prender el Mac.")
+        }
     }
 
     @objc private func cambiarVolumen() {
