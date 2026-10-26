@@ -35,6 +35,8 @@ Graba tus reuniones desde la barra de arriba del Mac, las transcribe **en tu pro
 
 **Calendario:** si das permiso al Calendario, al empezar a grabar Minuta busca la reunión que está ocurriendo (prefiere la que tiene link de Meet, Zoom o Teams) y guarda en `info.json` su título, invitados y horario. Claude usa los nombres para saber quién es quién, la carpeta toma ese nombre si hace falta, y el cartel de llamada dice «Empezó «Reunión de prueba» en Google Meet». Se apaga en Ajustes.
 
+**Menos frases inventadas:** Whisper inventa frases cuando le llega ruido, música o silencio ("Gracias por ver el video") y lo hace con total confianza. Por eso el dictado pasa primero por un detector de voz (Silero, `ggml-silero-v5.1.2.bin`, <1 MB, lo baja el instalador) y Whisper solo recibe los pedazos donde alguien habla. Además se botan, frase por frase, las que salen en inglés, las frases típicas de subtítulos, las repetidas en bucle y los restos de una palabra cortada ("En…"); y al ordenar, Claude saca lo que no tiene sentido sin adivinar palabras.
+
 **Correcciones:** tu lista de palabras que Whisper escribe mal está en `~/Library/Application Support/Minuta/correcciones.txt` (ícono › Ajustes… › Correcciones › Editar mi lista…), una por línea: `Bucines → Business`. Se aplica a los dictados y a las reuniones nuevas, solo a palabras o frases completas y sin importar mayúsculas.
 
 **Abrir al iniciar:** Minuta se abre sola al prender el Mac (queda en Ajustes del Sistema › General › Ítems de inicio de sesión), así los atajos y el aviso de llamadas están siempre listos. Se apaga en Ajustes.

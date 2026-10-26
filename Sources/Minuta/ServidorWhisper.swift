@@ -89,6 +89,7 @@ final class ServidorWhisper {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: bin)
         p.arguments = ["-m", Config.modelo, "-l", Config.idioma, "--host", "127.0.0.1", "--port", String(libre)]
+            + (Config.detectorDeVoz.map { ["--vad", "-vm", $0] } ?? [])
         p.currentDirectoryURL = FileManager.default.temporaryDirectory
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice

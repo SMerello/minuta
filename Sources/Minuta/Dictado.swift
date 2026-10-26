@@ -105,7 +105,38 @@ final class Dictado {
         let bruto = try ServidorWhisper.compartido.transcribir(wav, segundos: segundos) ?? transcribirSinServidor(wav)
         let texto = bruto.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }.joined(separator: " ")
-        return esAlucinacion(texto) ? "" : Correcciones.aplicar(texto)
+        return esAlucinacion(texto) ? "" : Correcciones.aplicar(limpiarFrases(texto))
+    }
+
+    /// Saca, frase por frase, lo que Whisper inventa: frases en inglés (hablas en español), frases
+    /// conocidas de subtítulos y frases repetidas en bucle. Lo dicho en español queda tal cual.
+    static func limpiarFrases(_ texto: String) -> String {
+        var vistas = Set<String>()
+        var frases: [String] = []
+        texto.enumerateSubstrings(in: texto.startIndex..., options: .bySentences) { frase, _, _, _ in
+            guard let frase = frase?.trimmingCharacters(in: .whitespaces), !frase.isEmpty else { return }
+            let clave = frase.lowercased().filter { $0.isLetter || $0 == " " }
+            // Un resto cortado de una sola palabra ("En…", "Y…") no aporta nada y suele ser ruido.
+            let restoCortado = (frase.hasSuffix("...") || frase.hasSuffix("…")) && !clave.contains(" ")
+            guard !clave.isEmpty, !restoCortado, !esAlucinacion(frase), !pareceIngles(frase), !vistas.contains(clave)
+            else { return }
+            vistas.insert(clave)
+            frases.append(frase)
+        }
+        return frases.joined(separator: " ")
+    }
+
+    /// "a demokrat. Your success": más palabras típicas del inglés que del español. Una palabra suelta en
+    /// inglés dentro de una frase en español ("el feature de la landing") no cuenta.
+    static func pareceIngles(_ frase: String) -> Bool {
+        guard Config.idioma == "es" else { return false }
+        let ingles: Set<String> = ["the", "you", "your", "and", "is", "are", "of", "to", "for", "with", "this", "that",
+                                   "it", "was", "be", "have", "what", "thank", "thanks", "watching", "success", "my", "we", "i"]
+        let espanol: Set<String> = ["el", "la", "los", "las", "de", "que", "y", "en", "un", "una", "es", "por", "para", "con",
+                                    "no", "se", "lo", "me", "te", "mi", "su", "al", "del", "como", "pero", "más", "ya", "sí"]
+        let palabras = frase.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)
+        let en = palabras.filter(ingles.contains).count, es = palabras.filter(espanol.contains).count
+        return en >= 2 && en > es
     }
 
     private static func escribirWAV(_ muestras: [Float], en url: URL) throws {
@@ -128,6 +159,7 @@ final class Dictado {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: whisper)
         p.arguments = ["-m", Config.modelo, "-f", wav.path, "-l", Config.idioma, "-nt", "-np"]
+            + (Config.detectorDeVoz.map { ["--vad", "-vm", $0] } ?? [])
             + (Config.vocabulario.isEmpty ? [] : ["--prompt", Config.vocabulario])
         let salida = Pipe()
         p.standardOutput = salida

@@ -20,6 +20,13 @@ if [[ "${1:-}" != "--sin-modelo" && ! -f "$MODELO" ]]; then
     https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin
   mv "$MODELO.part" "$MODELO"
 fi
+# Detector de voz (menos de 1 MB): el dictado no le pasa a Whisper el ruido ni la música, donde inventa frases.
+DETECTOR="$SOPORTE/ggml-silero-v5.1.2.bin"
+if [[ "${1:-}" != "--sin-modelo" && ! -f "$DETECTOR" ]]; then
+  echo "→ Bajando el detector de voz (Silero, <1 MB)"
+  curl -L --fail -o "$DETECTOR.part" https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin
+  mv "$DETECTOR.part" "$DETECTOR"
+fi
 
 echo "→ Compilando"
 swift build -c release --package-path "$RAIZ"

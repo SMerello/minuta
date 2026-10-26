@@ -639,6 +639,13 @@ enum Config {
     }
 
     static var idioma: String { (json["idioma"] as? String) ?? "es" }
+    /// Detector de voz (Silero) para que Whisper no transcriba ruido, música ni silencios, donde inventa
+    /// frases como "Gracias por ver el video". Si el archivo no está, el dictado funciona igual sin él.
+    static var detectorDeVoz: String? {
+        let ruta = ((json["detector_voz"] as? String) ?? soporte.appendingPathComponent("ggml-silero-v5.1.2.bin").path)
+            .replacingOccurrences(of: "~", with: FileManager.default.homeDirectoryForCurrentUser.path)
+        return FileManager.default.fileExists(atPath: ruta) ? ruta : nil
+    }
     /// Para el saludo de la ventana ("Buenas tardes, Santiago.").
     static var nombre: String {
         (json["nombre"] as? String) ?? NSFullUserName().split(separator: " ").first.map(String.init) ?? ""
