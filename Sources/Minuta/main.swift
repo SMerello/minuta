@@ -651,8 +651,9 @@ enum Config {
         (json["nombre"] as? String) ?? NSFullUserName().split(separator: " ").first.map(String.init) ?? ""
     }
     static var vocabulario: String { (json["vocabulario"] as? String) ?? "" }
-    /// Modelo de Claude para ordenar los dictados largos ("sonnet" ordena mejor que "haiku" y tarda casi lo mismo).
-    static var modeloDictado: String { (json["modelo_dictado"] as? String) ?? "sonnet" }
+    /// Modelo de Claude para ordenar los dictados largos. "opus" entiende mejor la intención que "sonnet" y, con
+    /// Claude ya abierto mientras dictas, tarda lo mismo (Santiago prefiere calidad a rapidez).
+    static var modeloDictado: String { (json["modelo_dictado"] as? String) ?? "opus" }
 
     static var python: String {
         ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"]
