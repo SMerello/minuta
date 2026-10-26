@@ -126,7 +126,7 @@ final class Dictado {
         return frases.joined(separator: " ")
     }
 
-    /// "a demokrat. Your success": más palabras típicas del inglés que del español. Una palabra suelta en
+    /// "Thank you. Your welcome": más palabras típicas del inglés que del español. Una palabra suelta en
     /// inglés dentro de una frase en español ("el feature de la landing") no cuenta.
     static func pareceIngles(_ frase: String) -> Bool {
         guard Config.idioma == "es" else { return false }
