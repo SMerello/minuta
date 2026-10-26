@@ -7,8 +7,9 @@ import Darwin
 final class ServidorWhisper {
     static let compartido = ServidorWhisper()
 
-    /// Minutos sin dictar antes de cerrar el servidor.
-    private static let espera: TimeInterval = 15 * 60
+    /// Tiempo sin dictar antes de cerrar el servidor. Corto a propósito: ocupa ~1,7 GB y el Mac tiene 16,
+    /// y volver a cargarlo toma menos de 1 s y pasa mientras hablas, así que no se nota.
+    private static let espera: TimeInterval = 2 * 60
 
     private let cola = DispatchQueue(label: "ai.caravana.minuta.whisper")
     private var proceso: Process?

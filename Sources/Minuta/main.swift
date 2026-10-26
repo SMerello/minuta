@@ -634,7 +634,7 @@ enum Config {
     }
 
     static var modelo: String {
-        ((json["modelo"] as? String) ?? soporte.appendingPathComponent("ggml-large-v3-turbo.bin").path)
+        ((json["modelo"] as? String) ?? soporte.appendingPathComponent("ggml-large-v3-turbo-q8_0.bin").path)
             .replacingOccurrences(of: "~", with: FileManager.default.homeDirectoryForCurrentUser.path)
     }
 

@@ -40,7 +40,7 @@ CONFIG_INICIAL = {
     "carpeta": "~/Reuniones",
     "nombre": "Yo",                 # cómo se llama la pista del micrófono en la transcripción
     "idioma": "es",                 # "es", "en", ... o "auto"
-    "modelo": str(SOPORTE / "ggml-large-v3-turbo.bin"),
+    "modelo": str(SOPORTE / "ggml-large-v3-turbo-q8_0.bin"),
     "plantilla": None,              # None → SOPORTE/plantilla.md si existe, si no la que viene con la app
     "resumen_con": "claude",        # "claude" (Claude Code, usa tu suscripción) | "api" | "ninguno"
     "modelo_claude": "sonnet",      # para "claude"; para "api" usa un id como "claude-sonnet-5-5"

@@ -5,7 +5,7 @@ set -euo pipefail
 
 RAIZ="$(cd "$(dirname "$0")/.." && pwd)"
 SOPORTE="$HOME/Library/Application Support/Minuta"
-MODELO="$SOPORTE/ggml-large-v3-turbo.bin"
+MODELO="$SOPORTE/ggml-large-v3-turbo-q8_0.bin"
 DESTINO="$HOME/Applications/Minuta.app"
 
 echo "→ Revisando herramientas"
@@ -15,9 +15,9 @@ command -v whisper-cli >/dev/null || brew install whisper-cpp
 
 mkdir -p "$SOPORTE"
 if [[ "${1:-}" != "--sin-modelo" && ! -f "$MODELO" ]]; then
-  echo "→ Bajando el modelo de Whisper (large-v3-turbo, ~1,6 GB)"
+  echo "→ Bajando el modelo de Whisper (large-v3-turbo comprimido q8, ~830 MB)"
   curl -L --fail -o "$MODELO.part" \
-    https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
+    https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin
   mv "$MODELO.part" "$MODELO"
 fi
 
