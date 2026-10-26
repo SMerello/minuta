@@ -131,6 +131,13 @@ final class Oferta {
 
     func mostrar(_ texto: String, boton titulo: String, durante segundos: TimeInterval, accion: @escaping () -> Void) {
         self.accion = accion
+        // Si estaba escondida, se arma de nuevo: una ventana escondida queda amarrada al escritorio donde se
+        // mostró la última vez, y al volver a mostrarla podía aparecer allá (por ejemplo, con la Terminal
+        // en pantalla completa en otro escritorio) en vez de donde estás.
+        if let viejo = self.panel, !viejo.isVisible {
+            viejo.contentView = nil   // suelta las piezas (barritas, texto, botones) para la ventana nueva
+            self.panel = nil
+        }
         let panel = self.panel ?? armar()
         etiqueta.stringValue = texto
         boton.attributedTitle = NSAttributedString(string: titulo, attributes: [
