@@ -113,13 +113,20 @@ final class Dictado {
     static func limpiarFrases(_ texto: String) -> String {
         var vistas = Set<String>()
         var frases: [String] = []
+        var todas: [String] = []
         texto.enumerateSubstrings(in: texto.startIndex..., options: .bySentences) { frase, _, _, _ in
-            guard let frase = frase?.trimmingCharacters(in: .whitespaces), !frase.isEmpty else { return }
-            let clave = frase.lowercased().filter { $0.isLetter || $0 == " " }
+            if let frase = frase?.trimmingCharacters(in: .whitespaces), !frase.isEmpty { todas.append(frase) }
+        }
+        let claveDe = { (frase: String) in frase.lowercased().filter { $0.isLetter || $0 == " " } }
+        // Tres veces o más la misma frase en un pedazo no es énfasis: es Whisper pegado en bucle.
+        let veces = Dictionary(todas.map { (claveDe($0), 1) }, uniquingKeysWith: +)
+        for frase in todas {
+            let clave = claveDe(frase)
+            if veces[clave, default: 0] >= 3 { continue }
             // Un resto cortado de una sola palabra ("En…", "Y…") no aporta nada y suele ser ruido.
             let restoCortado = (frase.hasSuffix("...") || frase.hasSuffix("…")) && !clave.contains(" ")
             guard !clave.isEmpty, !restoCortado, !esAlucinacion(frase), !pareceIngles(frase), !vistas.contains(clave)
-            else { return }
+            else { continue }
             vistas.insert(clave)
             frases.append(frase)
         }
@@ -251,7 +258,7 @@ final class Dictado {
         return instrucciones
     }
 
-    /// De una vez, con todo el texto (cuando no se pudo ir ordenando por partes). Tarda unos 6–8 s.
+    /// Con un Claude nuevo, cuando el que quedó abierto mientras dictabas falló. Tarda unos 6–10 s.
     /// Devuelve nil si Claude no está o no respondió: ahí se escribe tal cual.
     static func ordenar(_ texto: String) -> String? {
         guard let claude = rutaClaude(), let instrucciones = instruccionesParaOrdenar() else { return nil }

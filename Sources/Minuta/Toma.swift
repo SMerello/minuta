@@ -1,8 +1,9 @@
 import Foundation
 
 /// Un dictado en curso. Junta el audio (16 kHz mono) y, mientras sigues hablando, lo corta en trozos
-/// en los silencios: cada trozo se transcribe al tiro y, si Claude está ordenando, se le manda apenas
-/// sale de Whisper. Así, al terminar solo falta el último trozo.
+/// en los silencios: cada trozo se transcribe al tiro, así al terminar solo falta el último. Si es largo,
+/// Claude lo ordena completo al final (ya abierto desde los 4 s, para no esperar a que parta): ordenarlo
+/// por partes era más rápido, pero cuando divagabas el texto quedaba enredado.
 final class Toma {
     let desde = Date()
 
@@ -18,9 +19,7 @@ final class Toma {
     private var cortado = 0                  // hasta dónde ya se mandó a transcribir
     private var trozos = 0
     private var crudos: [Int: String] = [:]  // lo que entendió Whisper de cada trozo
-    private var ordenados: [Int: String] = [:]
     private var fallo: Error?
-    private var claudeFallo = false
     private var ordenador: Ordenador?
     private var intentoClaude = false
     private var descartada = false
@@ -28,7 +27,6 @@ final class Toma {
 
     private let colaTrozos = DispatchQueue(label: "ai.caravana.minuta.trozos")   // de a uno y en orden
     private let transcribiendo = DispatchGroup()
-    private let ordenando = DispatchGroup()
 
     /// Llega desde el micrófono (hilo de audio).
     func agregar(_ nuevas: [Float]) {
@@ -103,17 +101,20 @@ final class Toma {
                 return alTerminar(.success(Dictado.Entrega(texto: crudo, original: nil, sinOrdenar: false)))
             }
             alOrdenar()
-            ordenando.notify(queue: .global(qos: .userInitiated)) { [self] in
-                candado.lock()
-                let completo = !claudeFallo && ordenador != nil
-                    && (0..<trozos).allSatisfy { (crudos[$0] ?? "").isEmpty || ordenados[$0] != nil }
-                let porPartes = (0..<trozos).compactMap { ordenados[$0] }.filter { !$0.isEmpty }.joined(separator: " ")
-                candado.unlock()
+            let entregar = { [self] (ordenado: String?) in
                 cerrarClaude()
-                // Si alguna parte no se pudo ordenar, se ordena todo de una (más lento, pero queda bien).
-                let ordenado = completo && !porPartes.isEmpty ? porPartes : Dictado.ordenar(crudo)
                 alTerminar(.success(Dictado.Entrega(texto: ordenado ?? crudo, original: ordenado == nil ? nil : crudo,
                                                     sinOrdenar: ordenado == nil)))
+            }
+            candado.lock()
+            let ordenador = self.ordenador
+            candado.unlock()
+            // Todo el dictado de una vez, para que Claude vea las vueltas completas y junte cada tema.
+            // Si el Claude ya abierto falla, se ordena con uno nuevo (unos segundos más).
+            guard let ordenador else { return entregar(Dictado.ordenar(crudo)) }
+            ordenador.ordenar(crudo) { resultado in
+                if let resultado, !resultado.isEmpty { return entregar(resultado) }
+                DispatchQueue.global(qos: .userInitiated).async { entregar(Dictado.ordenar(crudo)) }
             }
         }
     }
@@ -138,16 +139,7 @@ final class Toma {
             }
             candado.lock()
             crudos[numero] = texto
-            let ordenador = descartada ? nil : self.ordenador
             candado.unlock()
-            guard !texto.isEmpty, let ordenador else { return }
-            ordenando.enter()
-            ordenador.ordenar(texto) { [self] resultado in
-                candado.lock()
-                if let resultado { ordenados[numero] = resultado } else { claudeFallo = true }
-                candado.unlock()
-                ordenando.leave()
-            }
         }
     }
 

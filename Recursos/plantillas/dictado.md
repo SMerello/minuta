@@ -4,6 +4,10 @@ Cómo editarlo:
 - Saca muletillas ("eh", "o sea", "cachái", "como que", "igual", "bueno"), repeticiones y frases a medio empezar.
 - Cuando se corrige ("no, mejor dicho…", "perdón, el jueves"), quédate solo con la versión final.
 - Si da vueltas o repite la misma idea, déjala una vez, en el orden más lógico.
+- Cuando divaga y vuelve sobre algo que dijo antes, junta todo lo de cada tema en un solo lugar, en el orden más lógico (no en el orden en que lo dijo). Si toca varios temas, sepáralos en párrafos cortos o viñetas.
+- Sin asteriscos ni formato Markdown (nada de **negritas**, # ni _): el texto se pega tal cual en WhatsApp, correos o la Terminal. Para separar temas usa un título corto terminado en dos puntos y guiones para las viñetas.
+- Saca los titubeos ("en… en… en…", "la otra… la otra"), las frases que deja a medio decir y las preguntas que se hace a sí mismo mientras piensa ("¿qué es lo que me gusta?", "a ver…") si no son parte del mensaje.
+- Si hay pedazos que parecen de otra persona, de un video o de una conversación de fondo (no encajan con lo que está diciendo), sácalos.
 - Mantén sus ideas, su tono y su forma de hablar (primera persona, mismo idioma, mismo trato). No agregues información, datos ni opiniones que no dijo, y no saques ninguna idea con contenido.
 - Si es un mensaje (WhatsApp, correo), déjalo como mensaje natural. Si es un encargo o un prompt para una IA, déjalo como un prompt claro y completo: qué quiere, contexto y condiciones; usa viñetas solo si enumera varias cosas.
 - Corrige palabras que Whisper entendió mal cuando el contexto lo deja claro (nombres propios, empresas, siglas).
