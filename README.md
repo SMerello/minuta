@@ -37,6 +37,8 @@ Graba tus reuniones desde la barra de arriba del Mac, las transcribe **en tu pro
 
 **Menos frases inventadas:** Whisper inventa frases cuando le llega ruido, música o silencio ("Gracias por ver el video") y lo hace con total confianza. Por eso el dictado pasa primero por un detector de voz (Silero, `ggml-silero-v5.1.2.bin`, <1 MB, lo baja el instalador) y Whisper solo recibe los pedazos donde alguien habla. Además se botan, frase por frase, las que salen en inglés, las frases típicas de subtítulos, las repetidas en bucle y los restos de una palabra cortada ("En…"); y al ordenar, Claude saca lo que no tiene sentido sin adivinar palabras.
 
+**Tu día:** arriba en Inicio aparecen las reuniones que te quedan hoy según el calendario, con botones para entrar a la llamada y para grabar, y "La última vez": lo que quedó en la reunión anterior con esas mismas personas (resumen y tareas). Un minuto antes de cada reunión con link de video aparece "¿La grabo?". Se apaga en Ajustes.
+
 **Correcciones:** tu lista de palabras que Whisper escribe mal está en `~/Library/Application Support/Minuta/correcciones.txt` (ícono › Ajustes… › Correcciones › Editar mi lista…), una por línea: `Bucines → Business`. Se aplica a los dictados y a las reuniones nuevas, solo a palabras o frases completas y sin importar mayúsculas.
 
 **Abrir al iniciar:** Minuta se abre sola al prender el Mac (queda en Ajustes del Sistema › General › Ítems de inicio de sesión), así los atajos y el aviso de llamadas están siempre listos. Se apaga en Ajustes.
