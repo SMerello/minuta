@@ -27,6 +27,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
     private let casillaOrdenar = NSButton(checkboxWithTitle: "Ordenar con Claude los largos", target: nil, action: nil)
     private let casillaLlamadas = NSButton(checkboxWithTitle: "Ofrecer grabar cuando empieza una", target: nil, action: nil)
     private let casillaVolumen = NSButton(checkboxWithTitle: "Bajar la música mientras dicto", target: nil, action: nil)
+    private let casillaAviso = NSButton(checkboxWithTitle: "Avisar 1 min antes de cada una", target: nil, action: nil)
     private let botonCorrecciones = NSButton(title: "Editar mi lista…", target: nil, action: nil)
     private let casillaAlIniciar = NSButton(checkboxWithTitle: "Abrir Minuta al prender el Mac", target: nil, action: nil)
     private let casillaCalendario = NSButton(checkboxWithTitle: "Nombrar las reuniones con él", target: nil, action: nil)
@@ -63,6 +64,8 @@ final class Ajustes: NSObject, NSWindowDelegate {
         casillaOrdenar.action = #selector(cambiarOrdenar)
         casillaLlamadas.target = self
         casillaLlamadas.action = #selector(cambiarLlamadas)
+        casillaAviso.target = self
+        casillaAviso.action = #selector(cambiarAviso)
         casillaVolumen.target = self
         casillaVolumen.action = #selector(cambiarVolumen)
         casillaAlIniciar.target = self
@@ -80,6 +83,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
             [NSTextField(labelWithString: "Inteligencia"), casillaOrdenar],
             [NSTextField(labelWithString: "Llamadas"), casillaLlamadas],
             [NSTextField(labelWithString: "Calendario"), casillaCalendario],
+            [NSTextField(labelWithString: ""), casillaAviso],
             [NSTextField(labelWithString: "Volumen"), casillaVolumen],
             [NSTextField(labelWithString: "Correcciones"), botonCorrecciones],
             [NSTextField(labelWithString: "Inicio"), casillaAlIniciar],
@@ -127,6 +131,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
         casillaOrdenar.state = Dictado.ordenarConIA ? .on : .off
         casillaLlamadas.state = llamadas?.encendido ?? true ? .on : .off
         casillaVolumen.state = Volumen.encendido ? .on : .off
+        casillaAviso.state = AvisoReuniones.encendido ? .on : .off
         casillaAlIniciar.state = AlIniciar.encendido || AlIniciar.esperaAprobacion ? .on : .off
         casillaCalendario.state = Calendario.encendido ? .on : .off
     }
@@ -161,6 +166,13 @@ final class Ajustes: NSObject, NSWindowDelegate {
         } else {
             avisar(prender ? "Minuta se va a abrir sola cada vez que prendas el Mac." : "Minuta ya no se abre sola al prender el Mac.")
         }
+    }
+
+    @objc private func cambiarAviso() {
+        AvisoReuniones.encendido = casillaAviso.state == .on
+        avisar(casillaAviso.state == .on
+               ? "Un minuto antes de cada reunión con link de video te pregunto si la grabo."
+               : "Ya no aviso antes de las reuniones del calendario.")
     }
 
     @objc private func cambiarVolumen() {

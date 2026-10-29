@@ -39,6 +39,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let espacio = EspacioTermina()
     private let llamadas = Llamadas()
     private let oferta = Oferta()
+    private let avisoReuniones = AvisoReuniones()
     private var avisoMicrofono = false       // ya avisé en esta grabación que el micrófono no capta
     private let ventanaReuniones = VentanaReuniones()
 
@@ -84,6 +85,17 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
         llamadas.vigilar()
+        // Un minuto antes de una reunión del calendario con link de video: "¿La grabo?".
+        avisoReuniones.alAvisar = { [weak self] evento in
+            guard let self, self.grabandoDesde == nil else { return }
+            let titulo = evento.titulo.count > 40 ? String(evento.titulo.prefix(39)) + "…" : evento.titulo
+            let cuando = evento.inicio.timeIntervalSinceNow > 15 ? "En 1 min empieza" : "Empezó"
+            self.oferta.mostrar("\(cuando) «\(titulo)». ¿La grabo?", boton: "Grabar", durante: 120) { [weak self] in
+                guard let self, self.grabandoDesde == nil else { return }
+                self.grabar()
+            }
+        }
+        avisoReuniones.vigilar()
         ajustes.llamadas = llamadas
         // El permiso del calendario se pide una sola vez: después macOS recuerda la respuesta.
         if Calendario.encendido, Calendario.sinPreguntar { Calendario.pedirPermiso() }
