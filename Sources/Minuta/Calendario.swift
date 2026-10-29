@@ -15,6 +15,8 @@ struct Evento {
     let asistentes: [Asistente]  // sin ti
     let app: String?             // "Google Meet", "Zoom", "Teams", "Webex"… según el link de la reunión
     let organizador: String?
+    var link: URL? = nil         // el link de video ("Entrar" en Inicio), el mismo que dio `app`
+    var identificador = ""       // distingue cada reunión del día (las que se repiten comparten id en EventKit)
     // Solo para elegir cuál es la reunión de ahora.
     var todoElDia = false
     var rechazado = false        // le dijiste que no a la invitación
@@ -71,6 +73,37 @@ enum Calendario {
         return elegir(eventos, ahora: ahora)
     }
 
+    /// Las reuniones que quedan hoy, para "Hoy en tu calendario" en Inicio: desde las que empezaron hace
+    /// media hora (o siguen) hasta el final del día, sin las de todo el día ni las rechazadas, por hora.
+    /// [] si la casilla está apagada o no hay permiso. Se llama cada 5 s con la ventana a la vista, pero el
+    /// calendario se lee como mucho una vez por minuto (el resto del tiempo se filtra lo ya leído).
+    static func reunionesDeHoy(_ ahora: Date = Date()) -> [Evento] {
+        guard encendido, conPermiso else { return [] }
+        let dia = Calendar.current.startOfDay(for: ahora)
+        if let c = cacheHoy, c.dia == dia, ahora.timeIntervalSince(c.leido) < 60, ahora >= c.leido {
+            return deHoy(c.eventos, ahora: ahora)
+        }
+        let manana = Calendar.current.date(byAdding: .day, value: 1, to: dia) ?? dia.addingTimeInterval(86_400)
+        let filtro = almacen.predicateForEvents(withStart: dia, end: manana, calendars: nil)
+        let eventos = almacen.events(matching: filtro).filter { $0.status != .canceled }.map(evento(de:))
+        cacheHoy = (ahora, dia, eventos)
+        return deHoy(eventos, ahora: ahora)
+    }
+
+    /// Calendario encendido pero sin permiso: Inicio muestra una línea para conectarlo.
+    static var faltaPermiso: Bool { encendido && !conPermiso }
+
+    private static var cacheHoy: (leido: Date, dia: Date, eventos: [Evento])?
+
+    /// El filtro de `reunionesDeHoy`, aparte de EventKit para poder probarlo con eventos inventados.
+    static func deHoy(_ eventos: [Evento], ahora: Date) -> [Evento] {
+        let desde = ahora.addingTimeInterval(-30 * 60)
+        let finDelDia = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: ahora)) ?? ahora
+        return eventos
+            .filter { !$0.todoElDia && !$0.rechazado && $0.fin > desde && $0.inicio < finDelDia }
+            .sorted { $0.inicio != $1.inicio ? $0.inicio < $1.inicio : $0.titulo < $1.titulo }
+    }
+
     /// Cuánto antes de que empiece una reunión ya cuenta como "la de ahora".
     static let margen: TimeInterval = 10 * 60
 
@@ -105,6 +138,21 @@ enum Calendario {
         return nil
     }
 
+    /// El primer link de video de estos textos (el mismo que encuentra `appDeVideo`), para el botón "Entrar".
+    /// Acepta links sin "https://", como "meet.google.com/abc-defg-hij" en el lugar del evento.
+    static func linkDeVideo(en textos: [String?]) -> URL? {
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return nil }
+        for texto in textos.compactMap({ $0 }) {
+            let links = detector.matches(in: texto, range: NSRange(texto.startIndex..., in: texto)).compactMap(\.url)
+            if let link = links.first(where: { url in
+                let host = url.host?.lowercased() ?? ""
+                return url.scheme?.lowercased().hasPrefix("http") == true
+                    && videos.contains { host == $0.0 || host.hasSuffix("." + $0.0) }
+            }) { return link }
+        }
+        return nil
+    }
+
     /// Correo de un invitado: su URL suele ser "mailto:marcela@empresa.cl".
     private static func correo(_ p: EKParticipant) -> String? {
         let url = p.url.absoluteString
@@ -115,6 +163,7 @@ enum Calendario {
 
     private static func evento(de e: EKEvent) -> Evento {
         let invitados = e.attendees ?? []
+        let textos = [e.url?.absoluteString, e.location, e.structuredLocation?.title, e.notes]
         let organizador = e.organizer
         let correoOrganizador = organizador.flatMap(correo)
         let asistentes = invitados.filter { !$0.isCurrentUser }.compactMap { p -> Evento.Asistente? in
@@ -127,8 +176,10 @@ enum Calendario {
         var evento = Evento(
             titulo: e.title?.trimmingCharacters(in: .whitespacesAndNewlines).nilSiVacio ?? "Reunión",
             inicio: e.startDate, fin: e.endDate, asistentes: asistentes,
-            app: appDeVideo(en: [e.url?.absoluteString, e.location, e.structuredLocation?.title, e.notes]),
-            organizador: organizador.flatMap { $0.name?.nilSiVacio ?? correo($0) })
+            app: appDeVideo(en: textos),
+            organizador: organizador.flatMap { $0.name?.nilSiVacio ?? correo($0) },
+            link: linkDeVideo(en: textos),
+            identificador: "\(e.calendarItemIdentifier)|\(Int(e.startDate.timeIntervalSince1970))")
         evento.todoElDia = e.isAllDay
         evento.rechazado = invitados.contains { $0.isCurrentUser && $0.participantStatus == .declined }
         return evento

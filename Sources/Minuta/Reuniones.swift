@@ -3,8 +3,9 @@ import WebKit
 
 /// Ventana "Minuta", hecha con barra lateral y tarjetas. A la izquierda tres botones, Inicio, Reuniones y
 /// Cómo se usa, y abajo un recuadro con los atajos; a la derecha la página elegida:
-/// - Inicio: el saludo, las cifras y TODOS los dictados y reuniones juntos por día (máximo 3 líneas cada uno).
-///   Clic en un dictado lo copia; clic en una reunión la abre.
+/// - Inicio: el saludo, las cifras, "Hoy en tu calendario" (las reuniones que quedan hoy, con Entrar, Grabar y
+///   lo que quedó de la última vez con esas personas) y TODOS los dictados y reuniones juntos por día (máximo
+///   3 líneas cada uno). Clic en un dictado lo copia; clic en una reunión la abre.
 /// - Reuniones: la lista con buscador y el botón para grabar. Clic en una reunión: sus pestañas Notas, Minuta
 ///   y Transcripción, con los botones Copiar correo, Copiar notas y Abrir carpeta.
 /// - Cómo se usa: los permisos (con botón para activar los que faltan), cómo dictar y grabar, y botones para
@@ -40,6 +41,8 @@ final class VentanaReuniones: NSObject, NSWindowDelegate, WKNavigationDelegate {
     var alDetener: (() -> Void)?
     /// Botón "Ajustes y atajos…" de Cómo se usa (abre la ventana de Ajustes).
     var alAbrirAjustes: (() -> Void)?
+    /// De dónde salen las reuniones de hoy. Las capturas de prueba ponen aquí una agenda inventada (sin EventKit).
+    var agendaDeHoy: () -> [Evento] = { Calendario.reunionesDeHoy() }
 
     private(set) var ventana: NSWindow?
     let web: WKWebView = {
@@ -56,6 +59,7 @@ final class VentanaReuniones: NSObject, NSWindowDelegate, WKNavigationDelegate {
     private var todas: [Reunion] = []
     private var guardadas: [String: Reunion] = [:]   // carpeta → reunión ya leída (se vuelve a leer si cambia algo)
     private var dictados: [DictadoGuardado] = []     // el más nuevo primero
+    private var agenda: [Evento] = []                // lo que queda hoy en el calendario, por hora
     private var diasDictados: [String: (firma: Date, entradas: [DictadoGuardado])] = [:]   // archivo → lo leído
     private var cuerpoGuardado: (clave: String, html: String)?   // el detalle ya armado (la transcripción larga cuesta)
 
@@ -237,6 +241,8 @@ final class VentanaReuniones: NSObject, NSWindowDelegate, WKNavigationDelegate {
         dictados = dias.values.flatMap(\.entradas).sorted {
             $0.fecha != $1.fecha ? $0.fecha > $1.fecha : ($0.archivo != $1.archivo ? $0.archivo > $1.archivo : $0.orden > $1.orden)
         }
+        // Al mismo ritmo que lo demás (Calendario solo vuelve a leer el calendario una vez por minuto).
+        agenda = agendaDeHoy()
         pintar(arriba: arriba)
     }
 
@@ -254,6 +260,8 @@ final class VentanaReuniones: NSObject, NSWindowDelegate, WKNavigationDelegate {
             "atajos": Pagina.atajos(),
             "boton-grabar": Pagina.botonGrabar(grabando: grabando),
             "inicio-cabeza": Pagina.cabezaInicio(nombre: Config.nombre, dictados: dictados, reuniones: todas),
+            "inicio-agenda": Pagina.agenda(agenda, reuniones: todas, grabando: grabando,
+                                           sinPermiso: agenda.isEmpty && Calendario.faltaPermiso),
             "inicio-filtros": Pagina.filtros(filtro),
             "inicio-lista": Pagina.listaInicio(dictados: dictados, reuniones: todas, filtro: filtro),
             "reuniones-lista": Pagina.listaReuniones(encontradas, busqueda: busqueda, hayAlguna: !todas.isEmpty),
@@ -326,6 +334,9 @@ final class VentanaReuniones: NSObject, NSWindowDelegate, WKNavigationDelegate {
             if let r = reunionAbierta { NSWorkspace.shared.open(r.carpeta) }
         case "grabar":
             alGrabar?()
+        case "entrar":
+            // Solo links que vienen del calendario (la página manda cuál reunión, no el link).
+            if let link = agenda.first(where: { $0.identificador == valor })?.link { NSWorkspace.shared.open(link) }
         case "detener":
             alDetener?()
         case "permiso":
@@ -440,8 +451,16 @@ struct Reunion {
     let estado: String?        // nil si ya tiene resumen; si no, "procesando…" o qué falló
     let etapa: String?         // lo último que anotó procesar.py en proceso.log
     let app: String?           // de info.json ({"app": "Google Meet"}), si la grabación partió con una llamada
-    let asistentes: [String]   // de info.json: los invitados según el calendario (sin ti)
+    let invitados: [Invitado]  // de info.json: los invitados según el calendario (sin ti)
     let tldr: String?          // el TL;DR de las notas (o el resumen), en una sola línea, para las listas
+    let tareas: [String]       // las de "## Tareas" del resumen, para "Preparar" en Inicio
+
+    struct Invitado {
+        let nombre: String
+        let email: String?
+    }
+
+    var asistentes: [String] { invitados.map(\.nombre) }
 
     private static let archivos = ["resumen.md", "minuta.md", "transcripcion.md", "proceso.log", "info.json"]
 
@@ -457,10 +476,14 @@ struct Reunion {
         let info = leer("info.json").flatMap { $0.data(using: .utf8) }
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         app = (info?["app"] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
-        asistentes = (info?["asistentes"] as? [[String: Any]] ?? []).compactMap { $0["nombre"] as? String }
-            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        invitados = (info?["asistentes"] as? [[String: Any]] ?? []).compactMap { a -> Invitado? in
+            guard let nombre = (a["nombre"] as? String)?.trimmingCharacters(in: .whitespaces), !nombre.isEmpty else { return nil }
+            let email = (a["email"] as? String)?.trimmingCharacters(in: .whitespaces)
+            return Invitado(nombre: nombre, email: email?.isEmpty == false ? email : nil)
+        }
         let delCalendario = (info?["titulo"] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
         tldr = resumen.flatMap(Reunion.tldr(de:))
+        tareas = resumen.map(Reunion.tareas(de:)) ?? []
 
         let nombre = carpeta.lastPathComponent
         let creada = (try? carpeta.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
@@ -609,6 +632,66 @@ extension Reunion {
         }
         return seccion { $0.contains("tl;dr") } ?? seccion { $0.hasPrefix("resumen") }
     }
+
+    /// Las tareas de "## Tareas" (o "## Próximos pasos"), una por línea y sin **: de la tabla
+    /// "Tarea | Responsable | Fecha" queda "Tarea · Responsable"; de una lista, cada viñeta. Las marcadas
+    /// como hechas ("[x]") no van.
+    static func tareas(de texto: String) -> [String] {
+        let lineas = texto.replacingOccurrences(of: "\r", with: "").components(separatedBy: "\n")
+        guard let inicio = lineas.firstIndex(where: {
+            guard $0.hasPrefix("## ") else { return false }
+            let t = $0.dropFirst(3).lowercased()
+            return t.hasPrefix("tareas") || t.hasPrefix("próximos pasos")
+        }) else { return [] }
+        var tareas: [String] = []
+        var cabecera: [String]?
+        for linea in lineas[(inicio + 1)...].prefix(while: { !$0.hasPrefix("#") }) {
+            let limpia = linea.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "**", with: "")
+            if limpia.hasPrefix("|") {
+                var celdas = limpia
+                celdas.removeFirst()
+                if celdas.hasSuffix("|") { celdas.removeLast() }
+                let fila = celdas.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+                if fila.allSatisfy({ $0.range(of: #"^:?-{2,}:?$"#, options: .regularExpression) != nil }) { continue }
+                guard let columnas = cabecera else { cabecera = fila.map { $0.lowercased() }; continue }
+                guard let tarea = fila.first, !tarea.isEmpty else { continue }
+                let quien = columnas.firstIndex { $0.hasPrefix("respons") }.flatMap { $0 < fila.count ? fila[$0] : nil }
+                tareas.append(quien.map { $0.isEmpty || $0 == "—" || $0 == "-" ? tarea : "\(tarea) · \($0)" } ?? tarea)
+            } else if let item = limpia.grupos(#"^(?:[-*•]|\d+[.)])\s+(.+)$"#)?.first {
+                if item.lowercased().hasPrefix("[x]") { continue }
+                tareas.append(item.reemplazando(#"^\[ \]\s*"#, por: ""))
+            }
+        }
+        return tareas
+    }
+
+    /// "Preparar": de las reuniones ya grabadas (la más nueva primero), la última con resumen que comparte al
+    /// menos un invitado con este evento del calendario. Se comparan los correos sin mayúsculas; si a uno de
+    /// los dos le falta el correo, el nombre (sin mayúsculas ni tildes). Solo cuentan las grabadas antes de
+    /// que empiece el evento (con 15 min de margen, para no mostrar la grabación de esta misma reunión).
+    static func anterior(a evento: Evento, en reuniones: [Reunion]) -> Reunion? {
+        func normal(_ s: String) -> String {
+            s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+                .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        }
+        let correos = Set(evento.asistentes.compactMap { $0.email.map(normal) })
+        let nombresSinCorreo = Set(evento.asistentes.filter { $0.email == nil }.map { normal($0.nombre) })
+        let nombres = Set(evento.asistentes.map { normal($0.nombre) })
+        guard !nombres.isEmpty else { return nil }
+        let antesDe = evento.inicio.addingTimeInterval(-15 * 60)
+        return reuniones
+            .filter { $0.fecha < antesDe && $0.resumen != nil }
+            .sorted { $0.fecha > $1.fecha }
+            .first { r in
+                r.invitados.contains { i in
+                    if let email = i.email.map(normal) {
+                        // Con correo en los dos lados manda el correo; si en el evento no lo trae, el nombre.
+                        return correos.contains(email) || nombresSinCorreo.contains(normal(i.nombre))
+                    }
+                    return nombres.contains(normal(i.nombre))
+                }
+            }
+    }
 }
 
 /// Un dictado del historial `Dictados/AAAA-MM-DD.md`, que escribe Dictado.guardar:
@@ -692,6 +775,7 @@ enum Pagina {
         <div id="centro">
           <section class="pagina" id="inicio"><div class="desplazable"><div class="contenido">
             <div id="inicio-cabeza"></div>
+            <div id="inicio-agenda"></div>
             <div id="inicio-filtros"></div>
             <div id="inicio-lista"></div>
           </div></div></section>
@@ -803,6 +887,65 @@ enum Pagina {
         if total < 1 { return "<1 min" }
         return total < 60 ? "\(total) min" : String(format: "%d h %02d min", total / 60, total % 60)
     }
+
+    /// "Hoy en tu calendario": cada reunión que queda hoy en una tarjeta, con la hora, a quién invitaron, la app
+    /// y los botones Entrar (si tiene link) y Grabar (si no estás grabando). La que está pasando lleva "Ahora".
+    /// Debajo, "Preparar": lo que quedó la última vez con alguno de esos invitados y sus tareas. Sin reuniones
+    /// no se ve nada (o, si falta el permiso del calendario, una línea para conectarlo).
+    static func agenda(_ eventos: [Evento], reuniones: [Reunion], grabando: Bool, sinPermiso: Bool, ahora: Date = Date()) -> String {
+        guard !eventos.isEmpty else {
+            return sinPermiso
+                ? #"<div class="agenda-conectar" role="button" data-accion="ir" data-valor="ayuda">\#(Icono.calendario)<span>Conecta tu calendario en Cómo se usa para ver aquí tus reuniones de hoy.</span></div>"#
+                : ""
+        }
+        let tarjetas = eventos.map { e -> String in
+            let ahoraMismo = e.inicio <= ahora && e.fin > ahora
+            let paso = e.fin <= ahora
+            let nombres = e.asistentes.map(\.nombre)
+            // "Con Marcela Pérez y Rodrigo Soto"; si son más de 3, "Con A, B, C y 2 más".
+            let con = nombres.count > 3
+                ? nombres.prefix(3).joined(separator: ", ") + " y \(nombres.count - 3) más"
+                : nombres.count > 1 ? nombres.dropLast().joined(separator: ", ") + " y " + (nombres.last ?? "") : nombres.first
+            let sub = (con.map { ["Con \($0)"] } ?? []) + (e.app.map { [$0] } ?? [])
+            let marca = ahoraMismo ? #"<span class="ahora">Ahora</span>"# : ""
+            // La que ya terminó (hace menos de media hora) queda tenue, sin Entrar ni Preparar: solo Grabar,
+            // por si se alargó.
+            let entrar = e.link == nil || paso ? ""
+                : #"<span class="boton-agenda\#(ahoraMismo ? " principal" : "")" role="button" data-accion="entrar" data-valor="\#(Markdown.escapar(e.identificador))">\#(Icono.video)Entrar</span>"#
+            let grabar = grabando ? "" : #"<span class="boton-agenda" role="button" data-accion="grabar"><span class="punto"></span>Grabar</span>"#
+            let lineaSub = sub.isEmpty ? "" : #"<div class="reunion-sub">\#(Markdown.escapar(sub.joined(separator: " · ")))</div>"#
+            return """
+            <div class="reunion-hoy\(ahoraMismo ? " en-curso" : "")\(paso ? " paso" : "")">\
+            <div class="reunion-hora"><div>\(hora(e.inicio))</div><div class="hasta">\(hora(e.fin))</div>\(marca)</div>\
+            <div class="reunion-cuerpo"><div class="reunion-titulo">\(Markdown.escapar(e.titulo))</div>\(lineaSub)\(paso ? "" : preparar(e, reuniones: reuniones))</div>\
+            <div class="reunion-botones">\(entrar)\(grabar)</div></div>
+            """
+        }
+        return #"<div class="agenda"><div class="agenda-titulo">Hoy en tu calendario</div>\#(tarjetas.joined())</div>"#
+    }
+
+    /// "La última vez (martes 21 de octubre): …" con el link a esa reunión, y hasta 3 de sus tareas.
+    private static func preparar(_ e: Evento, reuniones: [Reunion]) -> String {
+        guard let r = Reunion.anterior(a: e, en: reuniones), let tldr = r.tldr else { return "" }
+        let dia = Reunion.nombreDia(r.fecha)
+        let cuando = dia.prefix(1).lowercased() + dia.dropFirst()
+        let tareas = r.tareas.prefix(3).map { "<li>\(Markdown.escapar($0))</li>" }.joined()
+        return """
+        <div class="preparar"><div class="preparar-texto lineas-2"><span class="preparar-cuando">La última vez \
+        (\(Markdown.escapar(cuando))):</span> \(Markdown.escapar(tldr))</div>\
+        \(tareas.isEmpty ? "" : #"<ul class="preparar-tareas">\#(tareas)</ul>"#)\
+        <span class="enlace" role="button" data-accion="abrir" data-valor="\(Markdown.escapar(r.carpeta.path))">\
+        <span>Ver \(Markdown.escapar(r.titulo))</span>\(Icono.chevron)</span></div>
+        """
+    }
+
+    private static func hora(_ fecha: Date) -> String { formatoHora.string(from: fecha) }
+
+    private static let formatoHora: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f
+    }()
 
     static func filtros(_ elegido: VentanaReuniones.Filtro) -> String {
         let todos: [(VentanaReuniones.Filtro, String)] = [(.todo, "Todo"), (.dictados, "Dictados"), (.reuniones, "Reuniones")]
@@ -1087,6 +1230,40 @@ enum Pagina {
     .accion.apagado { opacity: .4; cursor: default; }
     .doc { max-width: 720px; margin: 0 auto; padding: 30px 44px 80px; -webkit-user-select: text; user-select: text; cursor: auto; }
 
+    .agenda { margin: -8px 0 34px; }
+    .agenda-titulo { font-family: var(--serif); font-size: 21px; font-weight: 400; letter-spacing: -.005em; margin-bottom: 12px; }
+    .reunion-hoy { display: grid; grid-template-columns: 58px 1fr auto; gap: 16px; align-items: start; padding: 14px 18px;
+      margin-bottom: 8px; background: var(--caja); border: 1px solid transparent; border-radius: 14px; }
+    .reunion-hoy.en-curso { background: var(--tldr-fondo); border-color: var(--tldr-borde); }
+    .reunion-hoy.paso { opacity: .55; }
+    .reunion-hora { font-size: 14px; font-weight: 600; line-height: 1.4; font-variant-numeric: tabular-nums; }
+    .reunion-hora .hasta { font-weight: 450; color: var(--tenue); font-size: 13px; }
+    .ahora { display: inline-block; margin-top: 7px; padding: 2px 8px 1px; border-radius: 999px; background: var(--acento);
+      color: var(--acento-texto); font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+    .reunion-cuerpo { min-width: 0; }
+    .reunion-titulo { font-weight: 650; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .reunion-sub { font-size: 13px; color: var(--tenue); margin-top: 1px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .reunion-botones { display: flex; gap: 8px; align-items: center; }
+    .boton-agenda { display: inline-flex; align-items: center; gap: 7px; padding: 5px 13px; border-radius: 999px;
+      background: var(--pildora); color: var(--pildora-texto); border: 1px solid var(--pildora-borde);
+      font-size: 12.5px; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.06); white-space: nowrap; }
+    .boton-agenda:hover { filter: brightness(.96); }
+    .boton-agenda svg { width: 15px; height: 15px; }
+    .boton-agenda .punto { width: 8px; height: 8px; border-radius: 50%; background: var(--rojo); }
+    .boton-agenda.principal { background: var(--acento); color: var(--acento-texto); border-color: transparent; }
+    .preparar { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--linea); font-size: 13px; line-height: 1.5; color: var(--suave); }
+    .preparar-cuando { font-weight: 600; color: var(--texto); }
+    ul.preparar-tareas { margin: 6px 0 0; }
+    ul.preparar-tareas > li { margin: 2px 0; padding-left: 16px; }
+    ul.preparar-tareas > li::before { left: 4px; top: .62em; width: 4px; height: 4px; }
+    .enlace { display: inline-flex; align-items: center; gap: 2px; margin-top: 7px; font-size: 12.5px; font-weight: 600; color: var(--texto); max-width: 100%; }
+    .enlace span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; border-bottom: 1px solid var(--linea-fuerte); }
+    .enlace:hover span { border-bottom-color: var(--texto); }
+    .enlace svg { width: 12px; height: 12px; flex: none; }
+    .agenda-conectar { display: flex; align-items: center; gap: 9px; margin: -12px 0 30px; font-size: 13px; color: var(--tenue); }
+    .agenda-conectar svg { width: 16px; height: 16px; flex: none; }
+    .agenda-conectar:hover { color: var(--suave); }
+
     #aviso { position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%); padding: 7px 16px; border-radius: 9px;
       background: rgba(20,20,20,.86); color: #fff; font-size: 13px; font-weight: 600; opacity: 0; transition: opacity .3s; pointer-events: none; }
     #aviso.visible { opacity: 1; transition: opacity .12s; }
@@ -1190,6 +1367,7 @@ private enum Icono {
     static let atras = svg(#"<path d="M12.5 4.5 7 10l5.5 5.5"/>"#, grosor: "1.9")
     static let sobre = svg(#"<rect x="2.5" y="4.5" width="15" height="11" rx="2.2"/><path d="m3.2 5.6 6.8 5.2 6.8-5.2"/>"#)
     static let copiar = svg(#"<rect x="6.8" y="6.8" width="10" height="10.5" rx="2"/><path d="M13.2 6.8V4.7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6.4a2 2 0 0 0 2 2h1.8"/>"#)
+    static let calendario = svg(#"<rect x="2.8" y="3.8" width="14.4" height="13" rx="2.6"/><path d="M2.8 8h14.4M6.6 2.4v2.8M13.4 2.4v2.8"/>"#)
     static let carpeta = svg(#"<path d="M2.6 6.2a2 2 0 0 1 2-2h3l1.9 1.9h5.9a2 2 0 0 1 2 2v6.4a2 2 0 0 1-2 2H4.6a2 2 0 0 1-2-2z"/>"#)
 }
 
