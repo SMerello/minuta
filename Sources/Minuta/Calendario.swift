@@ -166,7 +166,10 @@ enum Calendario {
         let textos = [e.url?.absoluteString, e.location, e.structuredLocation?.title, e.notes]
         let organizador = e.organizer
         let correoOrganizador = organizador.flatMap(correo)
-        let asistentes = invitados.filter { !$0.isCurrentUser }.compactMap { p -> Evento.Asistente? in
+        // Solo personas: una sala o un recurso ("Sala 3", un proyector) no es un invitado y, como se repite en
+        // reuniones que no tienen nada que ver, emparejaba mal al buscar "la última vez" con esa gente.
+        let asistentes = invitados.filter { !$0.isCurrentUser && ![.room, .resource].contains($0.participantType) }
+            .compactMap { p -> Evento.Asistente? in
             let email = correo(p)
             let nombre = p.name?.trimmingCharacters(in: .whitespaces).nilSiVacio ?? email
             guard let nombre else { return nil }
