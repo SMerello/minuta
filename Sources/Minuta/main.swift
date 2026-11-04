@@ -562,6 +562,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.refrescar()
                 // Descartaste la reunión (la carpeta está en la Papelera): no hay nada que avisar.
                 if resumen == nil && !FileManager.default.fileExists(atPath: clave) { return }
+                // Se cayó la transcripción en vivo mientras sigues grabando: no hay que alarmarte, porque al
+                // detener la reunión se procesa entera de nuevo (detener() ve que el proceso en vivo ya no está).
+                if resumen == nil, self.grabandoDesde != nil, self.grabador.carpeta?.path == clave { return }
                 if let resumen {
                     self.ultimoResumen = resumen
                     self.avisar(p.terminationStatus == 0 ? "Resumen listo" : "Transcripción lista (el resumen falló)",

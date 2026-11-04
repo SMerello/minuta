@@ -247,14 +247,15 @@ def preset_dtw(modelo):
     return nombre if nombre in PRESETS_DTW else None
 
 
-def transcribir(wav, config, etiqueta):
+def transcribir(wav, config, etiqueta, con_dtw=True):
     base = wav.with_suffix("")          # whisper agrega ".json" a este nombre
     salida_json = Path(f"{base}.json")
     comando = [herramienta("whisper-cli"), "-m", str(config["modelo"]), "-f", str(wav),
                "-l", config["idioma"], "-oj", "-ojf", "-of", str(base), "-pp", "-np"]
     if config.get("vocabulario"):
         comando += ["--prompt", config["vocabulario"]]
-    if preset := preset_dtw(config["modelo"]):
+    preset = preset_dtw(config["modelo"]) if con_dtw else None
+    if preset:
         # Hora de cada palabra alineada con el audio (DTW). Sin esto whisper la estima repartiendo
         # el segmento, y la primera palabra de cada intervención cae en la pausa de antes y se va
         # con la intervención anterior. DTW no funciona con flash attention: por eso -nfa.
@@ -270,6 +271,11 @@ def transcribir(wav, config, etiqueta):
                 ultimo = avance
                 decir("ETAPA", f"transcribiendo {etiqueta} {avance}%")
     if proceso.wait() != 0:
+        # El DTW de whisper.cpp a veces se cae con un pedazo de audio (abort en median_filter). Sin DTW
+        # la hora de cada palabra es estimada, un poco menos precisa, pero la reunión no se pierde.
+        if preset:
+            decir("ETAPA", f"reintentando {etiqueta} sin la hora exacta por palabra")
+            return transcribir(wav, config, etiqueta, con_dtw=False)
         raise RuntimeError("whisper falló: " + "".join(cola).strip()[-300:])
     datos = json.loads(salida_json.read_text(encoding="utf-8", errors="replace"))
     salida_json.unlink(missing_ok=True)
@@ -384,7 +390,12 @@ def en_vivo(carpeta, pistas, config):
             hasta = largos[quien] if detener else donde_cortar(pcm, hecho[quien], largos[quien], carpeta)
             if hasta is None or hasta - hecho[quien] < 0.3:
                 continue
-            nuevos, sil = transcribir_trozo(pcm, hecho[quien], hasta, config, etiqueta, carpeta)
+            try:
+                nuevos, sil = transcribir_trozo(pcm, hecho[quien], hasta, config, etiqueta, carpeta)
+            except Exception as e:
+                # Un trozo malo no puede botar la reunión entera: se anota, se salta y se sigue con el resto.
+                decir("ETAPA", f"no pude transcribir un trozo de {etiqueta} ({e}); sigo con el resto")
+                nuevos, sil = [], []
             segmentos[quien] += nuevos
             silencios[quien] += sil
             hecho[quien] = hasta
