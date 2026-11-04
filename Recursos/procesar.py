@@ -59,7 +59,12 @@ _log = None
 
 def decir(prefijo, texto):
     linea = f"{prefijo}: {texto}"
-    print(linea, flush=True)
+    try:
+        print(linea, flush=True)
+    except (BrokenPipeError, OSError):
+        # La app se cerró o se reinició mientras procesaba: igual termino y dejo todo en la carpeta
+        # (la ventana de Minuta lo muestra al abrirse). Sin esto el proceso se moría con la app.
+        sys.stdout = open(os.devnull, "w")
     if _log:
         _log.write(f"{dt.datetime.now():%H:%M:%S} {linea}\n")
         _log.flush()

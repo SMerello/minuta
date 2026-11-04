@@ -46,6 +46,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         ServidorWhisper.compartido.limpiarRestos()
         AlIniciar.prenderLaPrimeraVez()
+        // Unos segundos después de abrir, para no competir con todo lo que arranca al prender el Mac.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in self?.retomarPendientes() }
         NSApp.mainMenu = menuPrincipal()
         registrarAtajos()
         ajustes.alSoltarAtajos = { [weak self] in self?.atajos = [] }
@@ -492,6 +494,38 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // MARK: Procesar (transcribir + resumir)
+
+    /// Si Minuta se cerró o se reinició mientras grababa o procesaba una reunión, al abrirse la retoma sola:
+    /// reuniones de las últimas 24 h con audio pero sin transcripción ni resumen. Una sola vez por reunión
+    /// (deja ".retomada"), para no insistir con una que de verdad no tiene voz.
+    private func retomarPendientes() {
+        let fm = FileManager.default
+        guard grabandoDesde == nil,
+              let carpetas = try? fm.contentsOfDirectory(at: Config.carpetaReuniones,
+                                                         includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+        let desde = Date().addingTimeInterval(-24 * 3600)
+        for carpeta in carpetas where carpeta.lastPathComponent != "Dictados" {
+            let hay = { (nombre: String) in fm.fileExists(atPath: carpeta.appendingPathComponent(nombre).path) }
+            let fecha = (try? carpeta.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            guard hay("microfono.caf") || hay("llamada.caf"), !hay("resumen.md"), !hay("transcripcion.md"),
+                  !hay(".retomada"), fecha > desde, enProceso[carpeta.path] == nil,
+                  !Self.seEstaProcesando(carpeta) else { continue }
+            fm.createFile(atPath: carpeta.appendingPathComponent(".retomada").path, contents: nil)
+            avisar("Retomando una reunión", "Quedó a medias: la proceso ahora (\(carpeta.lastPathComponent)).")
+            procesar(["--carpeta", carpeta.path], clave: carpeta.path)
+        }
+    }
+
+    /// ¿Hay un procesar.py andando con esa carpeta? (por ejemplo, uno que siguió aunque la app se cerró).
+    private static func seEstaProcesando(_ carpeta: URL) -> Bool {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        p.arguments = ["-f", "procesar.py.*--carpeta " + NSRegularExpression.escapedPattern(for: carpeta.path)]
+        p.standardOutput = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return false }
+        p.waitUntilExit()
+        return p.terminationStatus == 0
+    }
 
     @objc private func procesarArchivo() {
         let panel = NSOpenPanel()
