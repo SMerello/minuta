@@ -28,6 +28,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
     private let casillaLlamadas = NSButton(checkboxWithTitle: "Ofrecer grabar cuando empieza una", target: nil, action: nil)
     private let casillaVolumen = NSButton(checkboxWithTitle: "Bajar la música mientras dicto", target: nil, action: nil)
     private let casillaAviso = NSButton(checkboxWithTitle: "Avisar 1 min antes de cada una", target: nil, action: nil)
+    private let casillaOcultar = NSButton(checkboxWithTitle: "Ocultar la barra al grabar reuniones", target: nil, action: nil)
     private let botonCorrecciones = NSButton(title: "Editar mi lista…", target: nil, action: nil)
     private let casillaAlIniciar = NSButton(checkboxWithTitle: "Abrir Minuta al prender el Mac", target: nil, action: nil)
     private let casillaCalendario = NSButton(checkboxWithTitle: "Nombrar las reuniones con él", target: nil, action: nil)
@@ -64,6 +65,8 @@ final class Ajustes: NSObject, NSWindowDelegate {
         casillaOrdenar.action = #selector(cambiarOrdenar)
         casillaLlamadas.target = self
         casillaLlamadas.action = #selector(cambiarLlamadas)
+        casillaOcultar.target = self
+        casillaOcultar.action = #selector(cambiarOcultar)
         casillaAviso.target = self
         casillaAviso.action = #selector(cambiarAviso)
         casillaVolumen.target = self
@@ -82,6 +85,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
             [NSTextField(labelWithString: ""), casillaEspacio],
             [NSTextField(labelWithString: "Inteligencia"), casillaOrdenar],
             [NSTextField(labelWithString: "Llamadas"), casillaLlamadas],
+            [NSTextField(labelWithString: "Discreción"), casillaOcultar],
             [NSTextField(labelWithString: "Calendario"), casillaCalendario],
             [NSTextField(labelWithString: ""), casillaAviso],
             [NSTextField(labelWithString: "Volumen"), casillaVolumen],
@@ -132,6 +136,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
         casillaLlamadas.state = llamadas?.encendido ?? true ? .on : .off
         casillaVolumen.state = Volumen.encendido ? .on : .off
         casillaAviso.state = AvisoReuniones.encendido ? .on : .off
+        casillaOcultar.state = Indicador.ocultaEnReuniones ? .on : .off
         casillaAlIniciar.state = AlIniciar.encendido || AlIniciar.esperaAprobacion ? .on : .off
         casillaCalendario.state = Calendario.encendido ? .on : .off
     }
@@ -166,6 +171,13 @@ final class Ajustes: NSObject, NSWindowDelegate {
         } else {
             avisar(prender ? "Minuta se va a abrir sola cada vez que prendas el Mac." : "Minuta ya no se abre sola al prender el Mac.")
         }
+    }
+
+    @objc private func cambiarOcultar() {
+        Indicador.ocultaEnReuniones = casillaOcultar.state == .on
+        avisar(casillaOcultar.state == .on
+               ? "Al grabar reuniones no aparece nada en pantalla: solo el ícono rojo de arriba."
+               : "Al grabar reuniones vuelve la barra de abajo (se puede achicar a un punto con −).")
     }
 
     @objc private func cambiarAviso() {

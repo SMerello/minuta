@@ -33,6 +33,19 @@ final class Indicador {
         didSet { if aviso != oldValue { actualizar() } }
     }
 
+    /// En reuniones, la barra queda achicada a un puntito con las barritas, en la esquina (sin "Grabando"
+    /// a la vista, para reuniones presenciales). Se recuerda para las próximas reuniones.
+    static var minimizada: Bool {
+        get { UserDefaults.standard.bool(forKey: "barraMinimizada") }
+        set { UserDefaults.standard.set(newValue, forKey: "barraMinimizada") }
+    }
+
+    /// En reuniones no se muestra nada: solo queda el ícono rojo de arriba (se cambia en Ajustes).
+    static var ocultaEnReuniones: Bool {
+        get { UserDefaults.standard.bool(forKey: "barraOcultaEnReuniones") }
+        set { UserDefaults.standard.set(newValue, forKey: "barraOcultaEnReuniones") }
+    }
+
     private static let alto: CGFloat = 36
     private static let lado: CGFloat = 26   // cada botón es un círculo de este tamaño
 
@@ -44,12 +57,15 @@ final class Indicador {
     private lazy var pausa = Indicador.boton("pause.fill", self, #selector(pausar))
     private lazy var detenerBoton = Indicador.boton("stop.fill", self, #selector(detener))
     private lazy var descartar = Indicador.boton("xmark", self, #selector(descartarTodo))
+    private lazy var achicar = Indicador.boton("minus", self, #selector(minimizar))
+    private var chica: Bool { modo == .reunion && Indicador.minimizada }
     private var modo: Modo = .reunion
     private var desde = Date()
     private var pausadoDesde: Date?
 
     /// `desde` es la hora en que empezó, ya corrida por el tiempo que estuvo en pausa.
     func mostrar(_ modo: Modo, desde: Date = Date(), pausadoDesde: Date? = nil) {
+        if modo == .reunion && Indicador.ocultaEnReuniones { return ocultar() }
         self.modo = modo
         self.desde = desde
         self.pausadoDesde = pausadoDesde
@@ -65,18 +81,25 @@ final class Indicador {
         ondas.color = enPausa ? .systemGray : modo.color
         animar()
 
-        pausa.isHidden = modo != .reunion
-        detenerBoton.isHidden = modo.esperando
-        descartar.isHidden = modo.esperando
+        pausa.isHidden = modo != .reunion || chica
+        detenerBoton.isHidden = modo.esperando || chica
+        descartar.isHidden = modo.esperando || chica
+        achicar.isHidden = modo != .reunion || chica
+        etiqueta.isHidden = chica
+        achicar.toolTip = "Achicar a un punto en la esquina (clic en el punto para volver)"
+        fondo?.toolTip = chica ? "Grabando · clic para ver la barra completa" : nil
         pausa.image = Indicador.simbolo(enPausa ? "play.fill" : "pause.fill")
         pausa.toolTip = enPausa ? "Seguir grabando" : "Pausar"
         detenerBoton.toolTip = modo == .reunion ? "Detener y resumir (\(modo.atajo))" : "Terminar y escribir (\(EspacioTermina.encendido ? "Espacio o " : "")\(modo.atajo))"
         descartar.toolTip = modo == .reunion ? "Descartar la grabación" : "Descartar el dictado"
         actualizar()
         // Si ya se ve (pausa, o pasa de dictando a escribiendo), queda donde la dejaste, con el mismo centro.
-        let centro = panel.isVisible ? panel.frame.midX : nil
+        // Achicada va siempre a la esquina de abajo a la derecha, donde no llama la atención.
+        let centro = panel.isVisible && !chica ? panel.frame.midX : nil
         acomodar(panel)
-        if let centro {
+        if chica {
+            enLaEsquina(panel)
+        } else if let centro {
             panel.setFrameOrigin(NSPoint(x: centro - panel.frame.width / 2, y: panel.frame.minY))
         } else {
             ubicar(panel)
@@ -124,6 +147,19 @@ final class Indicador {
     @objc private func pausar() { alPausar?() }
     @objc private func descartarTodo() { alDescartar?(modo) }
 
+    @objc private func minimizar() {
+        Indicador.minimizada = true
+        mostrar(modo, desde: desde, pausadoDesde: pausadoDesde)
+    }
+
+    /// Clic en el puntito: vuelve la barra completa, abajo al centro.
+    @objc private func agrandar() {
+        guard chica else { return }
+        Indicador.minimizada = false
+        panel?.orderOut(nil)   // así mostrar() la arma de nuevo y la ubica al centro
+        mostrar(modo, desde: desde, pausadoDesde: pausadoDesde)
+    }
+
     private func armar() -> NSPanel {
         let alto = Indicador.alto
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: alto),
@@ -153,7 +189,8 @@ final class Indicador {
         etiqueta.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
         etiqueta.textColor = .white
         fondo.addSubview(etiqueta)
-        for b in [pausa, detenerBoton, descartar] { fondo.addSubview(b) }
+        for b in [achicar, pausa, detenerBoton, descartar] { fondo.addSubview(b) }
+        fondo.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(agrandar)))
 
         self.panel = panel
         return panel
@@ -162,7 +199,14 @@ final class Indicador {
     /// El ancho depende de cuántos botones se ven (reunión 3, dictado 2, escribiendo ninguno).
     private func acomodar(_ panel: NSPanel) {
         let alto = Indicador.alto, lado = Indicador.lado
-        let visibles = [pausa, detenerBoton, descartar].filter { !$0.isHidden }
+        if chica {
+            // Solo las barritas, en una pastilla mínima.
+            let ancho = 13 + Ondas.ancho + 13
+            panel.setContentSize(NSSize(width: ancho, height: alto))
+            fondo?.frame = NSRect(x: 0, y: 0, width: ancho, height: alto)
+            return
+        }
+        let visibles = [achicar, pausa, detenerBoton, descartar].filter { !$0.isHidden }
         // Con botones, ancho fijo para que no baile con el reloj; sin botones, justo el texto.
         let anchoTexto: CGFloat = visibles.isEmpty ? ceil(etiqueta.intrinsicContentSize.width) + 10 : 132
         let izquierda: CGFloat = 13 + Ondas.ancho + 9
@@ -190,6 +234,13 @@ final class Indicador {
     private static func simbolo(_ nombre: String) -> NSImage? {
         NSImage(systemSymbolName: nombre, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 11, weight: .bold))
+    }
+
+    private func enLaEsquina(_ panel: NSPanel) {
+        let mouse = NSEvent.mouseLocation
+        let pantalla = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
+        guard let zona = pantalla?.visibleFrame else { return }
+        panel.setFrameOrigin(NSPoint(x: zona.maxX - panel.frame.width - 16, y: zona.minY + 16))
     }
 
     /// Abajo al centro de la pantalla donde está el mouse, sobre el Dock.
