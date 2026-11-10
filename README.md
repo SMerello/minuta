@@ -53,7 +53,7 @@ Necesitas un Mac con Apple Silicon y macOS 15 o más nuevo, [Homebrew](https://b
 
 ```bash
 git clone <este repo> && cd minuta
-scripts/instalar.sh          # instala ffmpeg y whisper-cpp, baja el modelo (~1,6 GB) y arma la app
+scripts/instalar.sh          # instala ffmpeg y whisper-cpp, baja el modelo de Whisper (~830 MB) y el detector de voz, y arma la app
 open ~/Applications/Minuta.app
 ```
 
