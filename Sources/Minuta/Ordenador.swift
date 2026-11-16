@@ -48,11 +48,31 @@ final class Ordenador {
 
     /// Manda el dictado. `alTerminar` recibe el texto ordenado, o nil si Claude falló.
     func ordenar(_ texto: String, alTerminar: @escaping (String?) -> Void) {
+        enviar("<dictado>\n\(texto)\n</dictado>", alTerminar: alTerminar)
+    }
+
+    /// Segunda pasada, en la misma conversación: en los dictados largos Claude tiende a resumir y se le
+    /// quedaban afuera listas, nombres o pedidos. Compara su versión con el dictado y la completa.
+    /// `alTerminar` recibe la versión corregida, la misma si no faltaba nada, o nil si Claude falló.
+    func revisar(_ version: String, alTerminar: @escaping (String?) -> Void) {
+        let pedido = """
+        Revisa tu versión contra el dictado original, punto por punto. Si quedó afuera cualquier dato, nombre, \
+        número, monto, ejemplo, elemento de una lista, frase o pedido con contenido, devuelve la versión final \
+        COMPLETA corregida (con las mismas reglas: sin asteriscos, en puntos por tema). Si no falta nada, \
+        responde exactamente: OK
+        """
+        enviar(pedido) { respuesta in
+            guard let respuesta else { return alTerminar(nil) }
+            let limpia = respuesta.trimmingCharacters(in: .whitespacesAndNewlines)
+            alTerminar(limpia.isEmpty || limpia.uppercased().hasPrefix("OK") && limpia.count < 6 ? version : limpia)
+        }
+    }
+
+    private func enviar(_ contenido: String, alTerminar: @escaping (String?) -> Void) {
         cola.async { [self] in
             guard vivo else { return alTerminar(nil) }
             esperando.append(alTerminar)
-            let mensaje: [String: Any] = ["type": "user", "message": [
-                "role": "user", "content": "<dictado>\n\(texto)\n</dictado>"]]
+            let mensaje: [String: Any] = ["type": "user", "message": ["role": "user", "content": contenido]]
             guard var linea = try? JSONSerialization.data(withJSONObject: mensaje) else { return responder(nil) }
             linea.append(0x0A)
             entrada.fileHandleForWriting.write(linea)

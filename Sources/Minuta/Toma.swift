@@ -11,6 +11,8 @@ final class Toma {
     private static let trozoMinimo = 8 * 16_000
     /// …y si no hay silencio, igual se corta aquí (en el momento más callado de los últimos 2 s).
     private static let trozoMaximo = 20 * 16_000
+    /// Desde este largo (≈ 1 minuto hablando) el ordenado pasa por una segunda revisión.
+    static let palabrasParaRevisar = 100
     /// Claude se abre a los 4 s de dictado: lo más corto casi nunca llega a 25 palabras.
     private static let abrirClaude: TimeInterval = 4
 
@@ -113,8 +115,14 @@ final class Toma {
             // Si el Claude ya abierto falla, se ordena con uno nuevo (unos segundos más).
             guard let ordenador else { return entregar(Dictado.ordenar(crudo)) }
             ordenador.ordenar(crudo) { resultado in
-                if let resultado, !resultado.isEmpty { return entregar(resultado) }
-                DispatchQueue.global(qos: .userInitiated).async { entregar(Dictado.ordenar(crudo)) }
+                guard let resultado, !resultado.isEmpty else {
+                    return DispatchQueue.global(qos: .userInitiated).async { entregar(Dictado.ordenar(crudo)) }
+                }
+                // Desde ~1 minuto de dictado, Claude revisa que no se le haya quedado nada afuera.
+                guard crudo.split(whereSeparator: { $0.isWhitespace }).count >= Toma.palabrasParaRevisar else {
+                    return entregar(resultado)
+                }
+                ordenador.revisar(resultado) { revisado in entregar(revisado ?? resultado) }
             }
         }
     }
