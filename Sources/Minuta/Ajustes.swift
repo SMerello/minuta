@@ -24,6 +24,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
     private let aviso = NSTextField(wrappingLabelWithString: "")
     private let casillaMantener = NSButton(checkboxWithTitle: "Mantener ⌃⌥ apretadas", target: nil, action: nil)
     private let casillaEspacio = NSButton(checkboxWithTitle: "Terminar el largo con solo Espacio", target: nil, action: nil)
+    private let casillaAsistente = NSButton(checkboxWithTitle: "Mantener ⌃⌥⌘ y pedirle algo a Claude", target: nil, action: nil)
     private let casillaOrdenar = NSButton(checkboxWithTitle: "Ordenar con Claude los largos", target: nil, action: nil)
     private let casillaLlamadas = NSButton(checkboxWithTitle: "Ofrecer grabar cuando empieza una", target: nil, action: nil)
     private let casillaVolumen = NSButton(checkboxWithTitle: "Bajar la música mientras dicto", target: nil, action: nil)
@@ -59,6 +60,8 @@ final class Ajustes: NSObject, NSWindowDelegate {
         }
         casillaMantener.target = self
         casillaMantener.action = #selector(cambiarMantener)
+        casillaAsistente.target = self
+        casillaAsistente.action = #selector(cambiarAsistente)
         casillaEspacio.target = self
         casillaEspacio.action = #selector(cambiarEspacio)
         casillaOrdenar.target = self
@@ -83,6 +86,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
             [NSTextField(labelWithString: "Dictado largo"), botonDictado],
             [NSTextField(labelWithString: "Dictado corto"), casillaMantener],
             [NSTextField(labelWithString: ""), casillaEspacio],
+            [NSTextField(labelWithString: "Asistente"), casillaAsistente],
             [NSTextField(labelWithString: "Inteligencia"), casillaOrdenar],
             [NSTextField(labelWithString: "Llamadas"), casillaLlamadas],
             [NSTextField(labelWithString: "Discreción"), casillaOcultar],
@@ -132,6 +136,7 @@ final class Ajustes: NSObject, NSWindowDelegate {
         botonDictado.title = capturando == .dictado ? "Aprieta la combinación…" : Atajos.dictado.texto
         casillaMantener.state = mantener?.encendido ?? true ? .on : .off
         casillaEspacio.state = EspacioTermina.encendido ? .on : .off
+        casillaAsistente.state = Asistente.encendido ? .on : .off
         casillaOrdenar.state = Dictado.ordenarConIA ? .on : .off
         casillaLlamadas.state = llamadas?.encendido ?? true ? .on : .off
         casillaVolumen.state = Volumen.encendido ? .on : .off
@@ -218,6 +223,13 @@ final class Ajustes: NSObject, NSWindowDelegate {
         } else {
             avisar("Dale permiso en Ajustes del Sistema › Privacidad y seguridad › Calendarios › Minuta.", error: true)
         }
+    }
+
+    @objc private func cambiarAsistente() {
+        Asistente.encendido = casillaAsistente.state == .on
+        avisar(casillaAsistente.state == .on
+               ? "Mantén ⌃⌥⌘, pide algo (sobre lo que tengas seleccionado) y suelta: Claude lo escribe."
+               : "Asistente apagado: ⌃⌥⌘ ya no hace nada.")
     }
 
     @objc private func cambiarEspacio() {

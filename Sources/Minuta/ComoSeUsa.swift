@@ -271,6 +271,7 @@ extension Pagina {
             #"<div class="filas-ayuda pasos">"# + [
                 paso(tecla("⌃⌥"), "<strong>Corto:</strong> mantén apretadas Control + Opción, habla y suéltalas."),
                 paso(tecla(d), "<strong>Largo:</strong> aprieta \(tecla(d)), habla todo lo que quieras (puedes seguir escribiendo) y termina con \(tecla(d)) otra vez o con Detener."),
+                paso(tecla("⌃⌥⌘"), "<strong>Asistente:</strong> mantén Control + Opción + Comando, pide algo y suelta: Claude lo hace y lo escribe donde está el cursor. Si tienes texto seleccionado, trabaja sobre él («respóndele que sí», «tradúcelo al inglés», «hazlo más corto») y lo reemplaza. Si partiste dictando con ⌃⌥, suma ⌘ sin soltar."),
                 paso(tecla("Espacio"), "<strong>¿Partiste corto y te alargaste?</strong> Sin soltar ⌃⌥, aprieta Espacio: sigue como dictado largo, sin cortarse."),
                 paso(teclaIcono(Ayuda.cruz), "<strong>Descartar:</strong> la ✕ de la barra de abajo bota el dictado sin escribir nada."),
                 paso(icono(Ayuda.copiar), "<strong>¿Se pegó donde no era?</strong> Ícono de arriba › Copiar último dictado, o haz clic en el dictado en Inicio."),

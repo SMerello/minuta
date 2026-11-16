@@ -6,21 +6,35 @@ import AppKit
 /// No le quita el foco a la app donde estás escribiendo (panel "no activante").
 final class Indicador {
     enum Modo {
-        case reunion, dictado, escribiendo, ordenando
+        case reunion, dictado, escribiendo, ordenando, asistente, pensando
 
         /// Ya no graba: espera a Whisper o a Claude (sin botones, con la ola de espera).
-        var esperando: Bool { self == .escribiendo || self == .ordenando }
+        var esperando: Bool { self == .escribiendo || self == .ordenando || self == .pensando }
 
-        var color: NSColor { self == .reunion ? .systemRed : .systemOrange }
+        var color: NSColor {
+            switch self {
+            case .reunion: return .systemRed
+            case .asistente, .pensando: return .systemPurple
+            default: return .systemOrange
+            }
+        }
         var texto: String {
             switch self {
             case .reunion: return "Grabando"
             case .dictado: return "Dictando"
             case .escribiendo: return "Escribiendo…"
             case .ordenando: return "Ordenando…"
+            case .asistente: return "Asistente"
+            case .pensando: return "Pensando…"
             }
         }
-        var atajo: String { self == .reunion ? Atajos.reunion.texto : Atajos.dictado.texto }
+        var atajo: String {
+            switch self {
+            case .reunion: return Atajos.reunion.texto
+            case .asistente: return "soltar ⌃⌥⌘"
+            default: return Atajos.dictado.texto
+            }
+        }
     }
 
     var alDetener: ((Modo) -> Void)?

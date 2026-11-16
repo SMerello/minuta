@@ -10,8 +10,10 @@ final class Ordenador {
     private var esperando: [(String?) -> Void] = []   // una por parte enviada, en el orden en que se mandaron
     private var vivo = true
 
-    init?() {
-        guard let claude = Dictado.rutaClaude(), let instrucciones = Dictado.instruccionesParaOrdenar() else { return nil }
+    /// Sin `instrucciones`, las de ordenar dictados; el asistente le pasa las suyas.
+    init?(instrucciones propias: String? = nil) {
+        guard let claude = Dictado.rutaClaude(),
+              let instrucciones = propias ?? Dictado.instruccionesParaOrdenar() else { return nil }
         proceso.executableURL = URL(fileURLWithPath: claude)
         proceso.arguments = ["-p", "--model", Config.modeloDictado, "--tools", "", "--no-session-persistence",
                              "--strict-mcp-config", "--input-format", "stream-json", "--output-format", "stream-json",
@@ -68,7 +70,8 @@ final class Ordenador {
         }
     }
 
-    private func enviar(_ contenido: String, alTerminar: @escaping (String?) -> Void) {
+    /// Un mensaje cualquiera en la conversación (lo usa el asistente para mandar el pedido y la selección).
+    func enviar(_ contenido: String, alTerminar: @escaping (String?) -> Void) {
         cola.async { [self] in
             guard vivo else { return alTerminar(nil) }
             esperando.append(alTerminar)

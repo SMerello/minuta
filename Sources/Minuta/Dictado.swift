@@ -23,9 +23,15 @@ final class Dictado {
     var alOrdenar: (() -> Void)?
 
     var activo: Bool { motor != nil }
+    /// El dictado en curso es un pedido al asistente (⌃⌥⌘).
+    var esAsistente: Bool { toma?.esAsistente ?? false }
+
+    /// Sumaste ⌘ mientras dictabas: lo que llevas dicho y lo que sigue van al asistente.
+    func pasarAAsistente() { toma?.pasarAAsistente() }
     var desde: Date? { motor == nil ? nil : toma?.desde }
 
-    func empezar() throws {
+    /// `asistente`: parte como pedido al asistente (⌃⌥⌘) en vez de dictado.
+    func empezar(asistente: Bool = false) throws {
         let motor = AVAudioEngine()
         let entrada = motor.inputNode
         let formato = entrada.outputFormat(forBus: 0)
@@ -53,6 +59,7 @@ final class Dictado {
         Volumen.bajar()                          // la música baja mientras dictas
         self.motor = motor
         self.toma = toma
+        if asistente { toma.pasarAAsistente() }
         // Cuatro veces por segundo: ¿hay un silencio donde cortar un trozo? ¿ya conviene abrir Claude?
         revision = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in toma.revisar() }
     }
@@ -81,7 +88,9 @@ final class Dictado {
             motor.inputNode.removeTap(onBus: 0)
             motor.stop()
             Volumen.devolver()
-            toma.cerrar(alOrdenar: { DispatchQueue.main.async { alOrdenar?() } }) { resultado in
+            // Para el asistente: lo que tenías seleccionado (las teclas ya están sueltas, así ⌘C no se mezcla).
+            let seleccion = toma.esAsistente ? Seleccion.leer() : nil
+            toma.cerrar(seleccion: seleccion, alOrdenar: { DispatchQueue.main.async { alOrdenar?() } }) { resultado in
                 DispatchQueue.main.async { alTerminar(resultado) }
             }
         }
@@ -247,6 +256,14 @@ final class Dictado {
     }
 
     /// Tu versión en Application Support (si la hiciste) manda sobre la del repo.
+    /// Las del asistente (⌃⌥⌘): tu copia en Application Support manda sobre la del repo, como las del dictado.
+    static func instruccionesDelAsistente() -> String? {
+        let propia = Config.soporte.appendingPathComponent("asistente.md")
+        return (try? String(contentsOf: propia, encoding: .utf8))
+            ?? Bundle.main.url(forResource: "asistente", withExtension: "md", subdirectory: "plantillas")
+                .flatMap({ try? String(contentsOf: $0, encoding: .utf8) })
+    }
+
     static func instruccionesParaOrdenar() -> String? {
         let propia = Config.soporte.appendingPathComponent("dictado.md")
         guard var instrucciones = (try? String(contentsOf: propia, encoding: .utf8))
@@ -310,13 +327,14 @@ final class Dictado {
 }
 
 enum ErrorDictado: LocalizedError {
-    case noGraba, sinWhisper, whisperFallo
+    case noGraba, sinWhisper, whisperFallo, asistenteFallo
 
     var errorDescription: String? {
         switch self {
         case .noGraba: return "No pude usar el micrófono. Revisa el permiso de Micrófono de Minuta."
         case .sinWhisper: return "Falta whisper-cpp. Instálalo con: brew install whisper-cpp"
         case .whisperFallo: return "Whisper no pudo transcribir el dictado."
+        case .asistenteFallo: return "Claude no respondió. Revisa que Claude Code tenga la sesión iniciada (escribe claude en la Terminal)."
         }
     }
 }

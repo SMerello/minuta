@@ -42,6 +42,27 @@ final class Toma {
     }
 
     /// Cada 0,25 s (hilo principal).
+    /// Es un pedido al asistente (⌃⌥⌘): Claude no ordena el texto, sino que hace lo que pediste.
+    private(set) var esAsistente = false
+
+    /// Desde ya es un pedido al asistente: se abre Claude con sus instrucciones (y se cierra el de ordenar).
+    func pasarAAsistente() {
+        candado.lock()
+        guard !esAsistente else { return candado.unlock() }
+        esAsistente = true
+        intentoClaude = true
+        let anterior = ordenador
+        ordenador = nil
+        candado.unlock()
+        anterior?.cerrar()
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            let nuevo = Ordenador(instrucciones: Dictado.instruccionesDelAsistente())
+            candado.lock()
+            if descartada { nuevo?.cerrar() } else { ordenador = nuevo }
+            candado.unlock()
+        }
+    }
+
     func revisar() {
         if !intentoClaude, Dictado.ordenarConIA, Date().timeIntervalSince(desde) >= Self.abrirClaude {
             intentoClaude = true
@@ -77,7 +98,9 @@ final class Toma {
     }
 
     /// Ya no se graba: manda el último trozo y, cuando todo esté listo, entrega el texto.
-    func cerrar(alOrdenar: @escaping () -> Void, alTerminar: @escaping (Result<Dictado.Entrega?, Error>) -> Void) {
+    /// `seleccion`: el texto que tenías seleccionado, solo para el asistente.
+    func cerrar(seleccion: String? = nil, alOrdenar: @escaping () -> Void,
+                alTerminar: @escaping (Result<Dictado.Entrega?, Error>) -> Void) {
         candado.lock()
         let segundos = Double(muestras.count) / 16_000
         let resto = Array(muestras[cortado...])
@@ -99,6 +122,7 @@ final class Toma {
                 cerrarClaude()
                 return alTerminar(error.map { .failure($0) } ?? .success(nil))
             }
+            if esAsistente { return pedirAlAsistente(crudo, seleccion: seleccion, alPensar: alOrdenar, alTerminar: alTerminar) }
             // Corto: sale tal cual, sin esperar a Claude aunque ya estuviera ordenando.
             guard Dictado.valeLaPenaOrdenar(crudo) else {
                 cerrarClaude()
@@ -126,6 +150,36 @@ final class Toma {
                 }
                 ordenador.revisar(resultado) { revisado in entregar(revisado ?? resultado) }
             }
+        }
+    }
+
+    /// Le pasa el pedido (y lo seleccionado) a Claude y entrega su respuesta para pegarla donde está el cursor.
+    /// Si el Claude abierto mientras hablabas falló, prueba una vez con uno nuevo.
+    private func pedirAlAsistente(_ pedido: String, seleccion: String?, alPensar: @escaping () -> Void,
+                                  alTerminar: @escaping (Result<Dictado.Entrega?, Error>) -> Void) {
+        alPensar()
+        var mensaje = "<pedido>\n\(pedido)\n</pedido>"
+        if let seleccion, !seleccion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            mensaje += "\n<seleccion>\n\(seleccion)\n</seleccion>"
+        }
+        let entregar = { [self] (respuesta: String?) in
+            cerrarClaude()
+            guard let respuesta, !respuesta.isEmpty else { return alTerminar(.failure(ErrorDictado.asistenteFallo)) }
+            alTerminar(.success(Dictado.Entrega(texto: respuesta, original: "Pedido: \(pedido)", sinOrdenar: false)))
+        }
+        candado.lock()
+        let abierto = ordenador
+        candado.unlock()
+        let conUnoNuevo = {
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard let nuevo = Ordenador(instrucciones: Dictado.instruccionesDelAsistente()) else { return entregar(nil) }
+                nuevo.enviar(mensaje) { respuesta in nuevo.cerrar(); entregar(respuesta) }
+            }
+        }
+        guard let abierto else { return conUnoNuevo() }
+        abierto.enviar(mensaje) { respuesta in
+            if let respuesta, !respuesta.isEmpty { return entregar(respuesta) }
+            conUnoNuevo()
         }
     }
 

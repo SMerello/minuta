@@ -32,6 +32,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let dictado = Dictado()
     private var transcribiendoDictado = false
     private var ordenandoDictado = false      // Claude está ordenando un dictado largo
+    private var asistenteEnCurso = false      // el dictado de ahora es un pedido al asistente (⌃⌥⌘)
+    private var proximoEsAsistente = false
     private let indicador = Indicador()
     private var modoIndicador: Indicador.Modo?
     private let ajustes = Ajustes()
@@ -57,6 +59,19 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self, !self.dictado.activo, !self.transcribiendoDictado else { return false }
             self.alternarDictado()
             return self.dictado.activo
+        }
+        // Asistente: mantener ⌃⌥⌘, pedir algo y soltar. Claude lo hace y lo escribe donde está el cursor.
+        mantener.alEmpezarAsistente = { [weak self] in
+            guard let self, Asistente.encendido, !self.dictado.activo, !self.transcribiendoDictado else { return false }
+            self.proximoEsAsistente = true
+            self.alternarDictado()
+            return self.dictado.activo
+        }
+        mantener.alPasarAAsistente = { [weak self] in
+            guard let self, Asistente.encendido, self.dictado.activo, !self.dictado.esAsistente else { return }
+            self.dictado.pasarAAsistente()
+            self.asistenteEnCurso = true
+            self.refrescar()
         }
         mantener.alSoltar = { [weak self] in
             guard let self, let desde = self.dictado.desde else { return }
@@ -259,12 +274,16 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Espacio termina solo el dictado largo: nunca en reuniones ni en el dictado corto (ahí se suelta ⌃⌥).
         espacio.activo = EspacioTermina.encendido && dictado.activo && !mantener.grabando
         let modo: Indicador.Modo?
-        if dictado.activo {
+        if dictado.activo && dictado.esAsistente {
+            modo = .asistente
+            boton.image = Self.simbolo("sparkles", color: .systemPurple)
+            boton.toolTip = "Asistente · suelta ⌃⌥⌘ cuando termines de pedir"
+        } else if dictado.activo {
             modo = .dictado
             boton.image = Self.simbolo("mic.circle.fill", color: .systemOrange)
             boton.toolTip = "Dictando · \(Atajos.dictado.texto) para terminar"
         } else if transcribiendoDictado {
-            modo = ordenandoDictado ? .ordenando : .escribiendo
+            modo = ordenandoDictado ? (asistenteEnCurso ? .pensando : .ordenando) : .escribiendo
             boton.image = Self.simbolo("ellipsis.circle.fill", color: .systemOrange)
             boton.toolTip = ordenandoDictado ? "Ordenando el dictado con Claude…" : "Escribiendo el dictado…"
         } else if let desde = grabandoDesde {
@@ -290,6 +309,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             modoIndicador = modo
             switch modo {
             case .dictado?: indicador.mostrar(.dictado, desde: dictado.desde ?? Date())
+            case .asistente?: indicador.mostrar(.asistente, desde: dictado.desde ?? Date())
+            case .pensando?: indicador.mostrar(.pensando)
             case .escribiendo?: indicador.mostrar(.escribiendo)
             case .ordenando?: indicador.mostrar(.ordenando)
             case .reunion?: indicador.mostrar(.reunion, desde: grabandoDesde ?? Date(), pausadoDesde: pausadoDesde)
@@ -355,8 +376,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             refrescar()
             dictado.terminar { [weak self] resultado in
                 guard let self else { return }
+                let eraAsistente = self.asistenteEnCurso
                 self.transcribiendoDictado = false
                 self.ordenandoDictado = false
+                self.asistenteEnCurso = false
                 self.refrescar()
                 switch resultado {
                 case .success(let entrega?):
@@ -365,13 +388,17 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 case .success(nil):
                     self.avisar("No escuché nada", "Revisa qué micrófono está usando el Mac (por ejemplo, los AirPods).")
                 case .failure(let error):
-                    self.avisar("No pude transcribir el dictado", error.localizedDescription)
+                    self.avisar(eraAsistente ? "El asistente no pudo responder" : "No pude transcribir el dictado",
+                                error.localizedDescription)
                 }
             }
         } else {
             guard !transcribiendoDictado else { return }
             do {
-                try dictado.empezar()
+                let asistente = proximoEsAsistente
+                proximoEsAsistente = false
+                try dictado.empezar(asistente: asistente)
+                asistenteEnCurso = asistente
                 NSSound(named: "Tink")?.play()
                 refrescar()
             } catch {
