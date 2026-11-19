@@ -26,7 +26,8 @@ final class ServidorWhisper {
     }
 
     /// Texto que entiende el servidor ("" si no escuchó nada), o nil si el servidor no está disponible.
-    func transcribir(_ wav: URL, segundos: Double) -> String? {
+    /// `contexto`: lo último que dijiste en el trozo anterior, para que Whisper no parta cada trozo de cero.
+    func transcribir(_ wav: URL, segundos: Double, contexto: String = "") -> String? {
         defer { programarApagado() }
         let (p, puerto) = cola.sync { (proceso, self.puerto) }
         guard let p else { return nil }
@@ -40,9 +41,11 @@ final class ServidorWhisper {
         }
 
         guard let audio = try? Data(contentsOf: wav) else { return nil }
-        var campos = ["response_format": "json", "language": Config.idioma,
+        // beam_size 5: compara varias opciones en vez de quedarse con la primera (más fiel, algo más lento).
+        var campos = ["response_format": "json", "language": Config.idioma, "beam_size": "5",
                       "audio_ctx": String(Self.contextoAudio(segundos))]
-        if !Config.vocabulario.isEmpty { campos["prompt"] = Config.vocabulario }
+        let indicacion = [Config.vocabulario, contexto].filter { !$0.isEmpty }.joined(separator: " ")
+        if !indicacion.isEmpty { campos["prompt"] = indicacion }
         var pedido = URLRequest(url: base.appendingPathComponent("inference"), timeoutInterval: 60)
         pedido.httpMethod = "POST"
         let limiteMultipart = "minuta-\(UUID().uuidString)"
@@ -88,8 +91,9 @@ final class ServidorWhisper {
               let libre = Self.puertoLibre() else { return }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: bin)
+        // Sin --vad: el detector de voz cortaba el audio en pedacitos y se comía frases cortas ("Qué bueno",
+        // "Perfecto"); ahora solo decide antes si un trozo tiene voz (Dictado.tieneVoz).
         p.arguments = ["-m", Config.modelo, "-l", Config.idioma, "--host", "127.0.0.1", "--port", String(libre)]
-            + (Config.detectorDeVoz.map { ["--vad", "-vm", $0] } ?? [])
         p.currentDirectoryURL = FileManager.default.temporaryDirectory
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice

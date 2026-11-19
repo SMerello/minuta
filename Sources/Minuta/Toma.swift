@@ -30,6 +30,7 @@ final class Toma {
     private(set) var nivel: Float = 0
 
     private let colaTrozos = DispatchQueue(label: "ai.caravana.minuta.trozos")   // de a uno y en orden
+    private var ultimoTexto = ""   // solo se usa dentro de colaTrozos
     private let transcribiendo = DispatchGroup()
 
     /// Llega desde el micrófono (hilo de audio).
@@ -111,6 +112,7 @@ final class Toma {
             cerrarClaude()
             return alTerminar(.success(nil))
         }
+        guardarAudio()
         if resto.count >= 4_800 { procesar(resto, numero) }
 
         transcribiendo.notify(queue: .global(qos: .userInitiated)) { [self] in
@@ -183,6 +185,24 @@ final class Toma {
         }
     }
 
+    /// Guarda el audio de los últimos 10 dictados en Application Support/Minuta/dictados-audio, solo en tu Mac:
+    /// si un dictado sale mal, se puede revisar con tu voz real en vez de adivinar qué pasó.
+    private func guardarAudio() {
+        candado.lock()
+        let todo = muestras
+        candado.unlock()
+        DispatchQueue.global(qos: .utility).async {
+            let fm = FileManager.default
+            let carpeta = Config.soporte.appendingPathComponent("dictados-audio")
+            try? fm.createDirectory(at: carpeta, withIntermediateDirectories: true)
+            let nombre = DateFormatter()
+            nombre.dateFormat = "yyyy-MM-dd-HHmmss"
+            try? Dictado.escribirWAV(todo, en: carpeta.appendingPathComponent("\(nombre.string(from: Date())).wav"))
+            let viejos = ((try? fm.contentsOfDirectory(atPath: carpeta.path)) ?? []).filter { $0.hasSuffix(".wav") }.sorted()
+            for viejo in viejos.dropLast(10) { try? fm.removeItem(at: carpeta.appendingPathComponent(viejo)) }
+        }
+    }
+
     func descartar() {
         candado.lock()
         descartada = true
@@ -197,10 +217,12 @@ final class Toma {
         colaTrozos.async { [self] in
             defer { transcribiendo.leave() }
             let texto: String
-            do { texto = try Dictado.transcribir(trozo) } catch {
+            do { texto = try Dictado.transcribir(trozo, contexto: ultimoTexto) } catch {
                 candado.lock(); fallo = error; candado.unlock()
                 return
             }
+            // Las últimas ~30 palabras pasan como contexto al trozo siguiente (la cola va de a uno y en orden).
+            if !texto.isEmpty { ultimoTexto = texto.split(separator: " ").suffix(30).joined(separator: " ") }
             candado.lock()
             crudos[numero] = texto
             candado.unlock()

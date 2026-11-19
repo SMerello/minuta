@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import AVFoundation
+import NaturalLanguage
 
 /// Dictado: graba el micrófono, lo transcribe con Whisper y escribe el texto donde está el cursor.
 /// El texto además queda en el portapapeles y en el historial ~/Reuniones/Dictados/AAAA-MM-DD.md.
@@ -106,12 +107,16 @@ final class Dictado {
     }
 
     /// Transcribe un trozo de audio (16 kHz mono). "" si no había voz.
-    static func transcribir(_ muestras: [Float]) throws -> String {
+    /// `contexto`: lo último que dijiste antes de este trozo (Whisper lo usa para entender cómo sigue).
+    static func transcribir(_ muestras: [Float], contexto: String = "") throws -> String {
         let wav = FileManager.default.temporaryDirectory.appendingPathComponent("minuta-trozo-\(UUID().uuidString).wav")
         defer { try? FileManager.default.removeItem(at: wav) }
         try escribirWAV(muestras, en: wav)
+        // Un trozo sin voz (silencio, ruido, música) no se le pasa a Whisper, que ahí inventa frases.
+        guard tieneVoz(wav) else { return "" }
         let segundos = Double(muestras.count) / 16_000
-        let bruto = try ServidorWhisper.compartido.transcribir(wav, segundos: segundos) ?? transcribirSinServidor(wav)
+        let bruto = try ServidorWhisper.compartido.transcribir(wav, segundos: segundos, contexto: contexto)
+            ?? transcribirSinServidor(wav, contexto: contexto)
         let texto = bruto.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }.joined(separator: " ")
         return esAlucinacion(texto) ? "" : Correcciones.aplicar(limpiarFrases(texto))
@@ -120,6 +125,7 @@ final class Dictado {
     /// Saca, frase por frase, lo que Whisper inventa: frases en inglés (hablas en español), frases
     /// conocidas de subtítulos y frases repetidas en bucle. Lo dicho en español queda tal cual.
     static func limpiarFrases(_ texto: String) -> String {
+        let texto = sinOtrosAlfabetos(texto)
         var vistas = Set<String>()
         var frases: [String] = []
         var todas: [String] = []
@@ -134,12 +140,42 @@ final class Dictado {
             if veces[clave, default: 0] >= 3 { continue }
             // Un resto cortado de una sola palabra ("En…", "Y…") no aporta nada y suele ser ruido.
             let restoCortado = (frase.hasSuffix("...") || frase.hasSuffix("…")) && !clave.contains(" ")
-            guard !clave.isEmpty, !restoCortado, !esAlucinacion(frase), !pareceIngles(frase), !vistas.contains(clave)
+            guard !clave.isEmpty, !restoCortado, !esAlucinacion(frase), !pareceIngles(frase), !otroIdioma(frase),
+                  !vistas.contains(clave)
             else { continue }
             vistas.insert(clave)
             frases.append(frase)
         }
         return frases.joined(separator: " ")
+    }
+
+    /// Whisper, con audio difícil, mete pedazos en otros idiomas y alfabetos ("eres真的 recto", "meterабот",
+    /// "よし"). Si hablas en español: se bota la frase que trae letras que no son del alfabeto latino, o que
+    /// el reconocedor de idiomas del Mac da claramente como otro idioma (palabras sueltas en inglés no cuentan).
+    static func otroIdioma(_ frase: String) -> Bool {
+        guard Config.idioma == "es" else { return false }
+        if conOtroAlfabeto(frase) { return true }
+        guard frase.split(whereSeparator: { $0.isWhitespace }).count >= 5 else { return false }
+        let reconocedor = NLLanguageRecognizer()
+        reconocedor.processString(frase)
+        let probables = reconocedor.languageHypotheses(withMaximum: 3)
+        return (probables[.spanish] ?? 0) < 0.15 && (probables.values.max() ?? 0) > 0.6
+    }
+
+    /// Saca solo los pedacitos (entre comas o punto y coma) que traen letras de otros alfabetos, sin botar la
+    /// frase buena que venía pegada: "nos vemos el lunes, eres真的 recto" → "nos vemos el lunes".
+    static func sinOtrosAlfabetos(_ texto: String) -> String {
+        guard Config.idioma == "es", conOtroAlfabeto(texto) else { return texto }
+        return texto.components(separatedBy: CharacterSet(charactersIn: ",;"))
+            .filter { !conOtroAlfabeto($0) }
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+    }
+
+    private static func conOtroAlfabeto(_ texto: String) -> Bool {
+        // Latino básico, con acentos y extendidos; todo lo demás (chino, japonés, cirílico…) es otro alfabeto.
+        texto.unicodeScalars.contains { $0.properties.isAlphabetic && !($0.value < 0x0250 || (0x1E00...0x1EFF).contains($0.value)) }
     }
 
     /// "Thank you. Your welcome": más palabras típicas del inglés que del español. Una palabra suelta en
@@ -155,7 +191,27 @@ final class Dictado {
         return en >= 2 && en > es
     }
 
-    private static func escribirWAV(_ muestras: [Float], en url: URL) throws {
+    /// ¿Hay voz humana en el trozo? Lo decide el detector Silero (whisper-vad-speech-segments), solo como
+    /// filtro: el trozo entero va a Whisper, sin cortes. Permisivo (umbral 0,35): en la duda, transcribe.
+    /// Sin el detector instalado, se transcribe todo como antes.
+    static func tieneVoz(_ wav: URL) -> Bool {
+        guard let detector = Config.detectorDeVoz,
+              let herramienta = ["/opt/homebrew/bin/whisper-vad-speech-segments", "/usr/local/bin/whisper-vad-speech-segments"]
+                .first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { return true }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: herramienta)
+        p.arguments = ["-vm", detector, "-f", wav.path, "-vt", "0.35", "-np"]
+        let salida = Pipe()
+        p.standardOutput = salida
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return true }
+        let texto = String(data: salida.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else { return true }
+        return !texto.contains("Detected 0 speech segments")
+    }
+
+    static func escribirWAV(_ muestras: [Float], en url: URL) throws {
         let ajustes: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16_000,
                                       AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16,
                                       AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false]
@@ -169,14 +225,14 @@ final class Dictado {
     }
 
     /// Como antes del servidor: whisper-cli carga el modelo en cada dictado (unos segundos más).
-    private static func transcribirSinServidor(_ wav: URL) throws -> String {
+    private static func transcribirSinServidor(_ wav: URL, contexto: String = "") throws -> String {
         guard let whisper = ["/opt/homebrew/bin/whisper-cli", "/usr/local/bin/whisper-cli"]
             .first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { throw ErrorDictado.sinWhisper }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: whisper)
-        p.arguments = ["-m", Config.modelo, "-f", wav.path, "-l", Config.idioma, "-nt", "-np"]
-            + (Config.detectorDeVoz.map { ["--vad", "-vm", $0] } ?? [])
-            + (Config.vocabulario.isEmpty ? [] : ["--prompt", Config.vocabulario])
+        let indicacion = [Config.vocabulario, contexto].filter { !$0.isEmpty }.joined(separator: " ")
+        p.arguments = ["-m", Config.modelo, "-f", wav.path, "-l", Config.idioma, "-nt", "-np", "-bs", "5"]
+            + (indicacion.isEmpty ? [] : ["--prompt", indicacion])
         let salida = Pipe()
         p.standardOutput = salida
         p.standardError = FileHandle.nullDevice
